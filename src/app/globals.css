@@ -1,0 +1,503 @@
+@import "tailwindcss";
+
+:root {
+  --paper: #f8f7f4;
+  --paper-soft: #efece5;
+  --paper-line: #e2ded4;
+  --ink: #131a1a;
+  --ink-muted: #4f5b5a;
+  --night: #0d1413;
+  --night-soft: #161f1e;
+  --night-raised: #1d2726;
+  --night-line: #26312f;
+  --night-ink: #e9ebe7;
+  --night-muted: #97a4a1;
+  --gold: #c9a86b;
+  --gold-bright: #dcbf85;
+  --gold-deep: #8a6a2f;
+  --gold-soft: #f2ead9;
+  --gold-line: #d8c8a4;
+  --danger: #9b3d3d;
+  --ok: #2f6f5e;
+  --background: var(--paper);
+  --foreground: var(--ink);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-paper: var(--paper);
+  --color-paper-soft: var(--paper-soft);
+  --color-paper-line: var(--paper-line);
+  --color-ink: var(--ink);
+  --color-ink-muted: var(--ink-muted);
+  --color-night: var(--night);
+  --color-night-soft: var(--night-soft);
+  --color-night-raised: var(--night-raised);
+  --color-night-line: var(--night-line);
+  --color-night-ink: var(--night-ink);
+  --color-night-muted: var(--night-muted);
+  --color-gold: var(--gold);
+  --color-gold-bright: var(--gold-bright);
+  --color-gold-deep: var(--gold-deep);
+  --color-gold-soft: var(--gold-soft);
+  --color-gold-line: var(--gold-line);
+  --color-danger: var(--danger);
+  --color-ok: var(--ok);
+  --font-sans: var(--font-source);
+  --font-display: var(--font-sora);
+}
+
+html {
+  background: var(--paper);
+}
+
+body {
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-source), sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+.font-display {
+  font-family: var(--font-sora), sans-serif;
+}
+
+:focus-visible {
+  outline: 2px solid var(--gold-deep);
+  outline-offset: 2px;
+}
+
+::selection {
+  background: var(--gold);
+  color: var(--ink);
+}
+
+.sheet-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--paper-line);
+  border-radius: 1rem;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.sheet {
+  width: 100%;
+  min-width: 28rem;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.sheet th,
+.sheet td {
+  border-bottom: 1px solid var(--paper-line);
+  padding: 0.55rem 0.7rem;
+  text-align: left;
+  vertical-align: middle;
+}
+
+.sheet thead th {
+  font-size: 11px;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--ink-muted);
+  font-weight: 600;
+  background: var(--paper-soft);
+}
+
+.sheet tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.sheet .num,
+.sheet th.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.sheet tfoot td {
+  font-weight: 600;
+  background: var(--paper-soft);
+}
+
+.sheet .actions,
+.sheet th.actions {
+  text-align: right;
+  white-space: nowrap;
+  width: 1%;
+}
+
+.sheet-empty {
+  border: 1px dashed var(--paper-line);
+  border-radius: 1rem;
+  padding: 2.5rem 1rem;
+  text-align: center;
+  font-size: 0.875rem;
+  color: var(--ink-muted);
+}
+
+.sheet-link {
+  border: 0;
+  background: none;
+  padding: 0;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ink-muted);
+  cursor: pointer;
+}
+
+.sheet-link:hover {
+  color: var(--ink);
+}
+
+.sheet-link.danger:hover {
+  color: var(--danger);
+}
+
+.sheet .empty {
+  color: var(--ink-muted);
+  text-align: center;
+}
+
+/* Mobile: stack sheet rows as cards */
+@media (max-width: 640px) {
+  .sheet-wrap.sheet-stack {
+    border: 0;
+    background: transparent;
+    border-radius: 0;
+    overflow: visible;
+  }
+
+  .sheet-wrap.sheet-stack .sheet {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .sheet-wrap.sheet-stack thead {
+    display: none;
+  }
+
+  .sheet-wrap.sheet-stack tbody,
+  .sheet-wrap.sheet-stack tfoot {
+    display: flex;
+    flex-direction: column;
+    gap: 0.65rem;
+  }
+
+  .sheet-wrap.sheet-stack tbody tr,
+  .sheet-wrap.sheet-stack tfoot tr {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 0.35rem 0.75rem;
+    padding: 0.85rem 1rem;
+    border: 1px solid var(--paper-line);
+    border-radius: 1rem;
+    background: rgba(255, 255, 255, 0.85);
+  }
+
+  .sheet-wrap.sheet-stack tbody tr td,
+  .sheet-wrap.sheet-stack tfoot tr td {
+    border: 0;
+    padding: 0;
+  }
+
+  .sheet-wrap.sheet-stack tbody tr td:first-child,
+  .sheet-wrap.sheet-stack tfoot tr td:first-child {
+    grid-column: 1 / -1;
+    font-weight: 600;
+  }
+
+  .sheet-wrap.sheet-stack .num {
+    text-align: left;
+  }
+
+  .sheet-wrap.sheet-stack .actions {
+    grid-column: 1 / -1;
+    text-align: left;
+  }
+
+  .sheet-wrap.sheet-stack tfoot tr {
+    background: var(--paper-soft);
+  }
+
+  .budget-sheet-wrap {
+    margin-inline: -0.25rem;
+  }
+
+  .budget-sheet {
+    font-size: 12px;
+  }
+
+  .budget-sheet th,
+  .budget-sheet td {
+    padding: 0.4rem 0.35rem;
+  }
+
+  .budget-sheet .particular-chip {
+    min-width: 5.5rem;
+  }
+
+  .budget-sheet .cell-input {
+    min-width: 3.25rem;
+  }
+}
+
+.sheet .paid {
+  color: var(--ok);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  font-size: 11px;
+}
+
+.sheet .empty {
+  color: var(--ink-muted);
+}
+
+/* Period cash-flow budget sheet */
+.budget-sheet-wrap {
+  overflow-x: auto;
+  border: 1px solid #1a1a1a;
+  border-radius: 0.75rem;
+  background: #fff;
+}
+
+.budget-sheet {
+  width: 100%;
+  min-width: 56rem;
+  border-collapse: collapse;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.budget-sheet th,
+.budget-sheet td {
+  border: 1px solid #c8c8c8;
+  padding: 0.35rem 0.4rem;
+  vertical-align: middle;
+}
+
+.budget-sheet thead th {
+  background: #f3f3f3;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  font-weight: 700;
+  text-align: center;
+}
+
+.budget-sheet thead .group {
+  background: #e8e8e8;
+}
+
+.budget-sheet .num,
+.budget-sheet th.num {
+  text-align: right;
+}
+
+.budget-sheet .period-cell {
+  background: #fafafa;
+  font-weight: 700;
+  font-size: 11px;
+  letter-spacing: 0.03em;
+  text-align: center;
+  min-width: 6.5rem;
+  max-width: 7.5rem;
+  vertical-align: top;
+  padding-top: 0.75rem;
+}
+
+.budget-sheet .period-label {
+  white-space: pre-line;
+  line-height: 1.35;
+}
+
+.budget-sheet .balance {
+  font-weight: 600;
+  background: #fbfbfb;
+}
+
+.budget-sheet .period-foot td {
+  background: #f7f7f7;
+  border-top: 2px solid #1a1a1a;
+}
+
+.budget-sheet .period-block + .period-block tr:first-child td {
+  border-top: 3px solid #1a1a1a;
+}
+
+.budget-sheet .empty-cell {
+  color: var(--ink-muted);
+  text-align: center;
+}
+
+.budget-sheet .muted {
+  color: var(--ink-muted);
+  font-size: 11px;
+}
+
+.budget-sheet .cell-input {
+  width: 100%;
+  min-width: 4.5rem;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  color: inherit;
+  outline: none;
+}
+
+.budget-sheet .num-input {
+  text-align: right;
+}
+
+.budget-sheet .particular-chip {
+  display: inline-flex;
+  width: 100%;
+  min-width: 8rem;
+  border-radius: 999px;
+  padding: 0.15rem 0.45rem;
+  background: #eee;
+}
+
+/* Mobile period cards reuse tone backgrounds lightly */
+@media (max-width: 767px) {
+  .tone-paycheck {
+    background: #d9ead3;
+  }
+  .tone-housing {
+    background: #cfe2f3;
+  }
+  .tone-loan {
+    background: #fce5cd;
+  }
+  .tone-utility {
+    background: #d0e2ff;
+  }
+  .tone-food {
+    background: #f4cccc;
+  }
+  .tone-personal {
+    background: #ead1dc;
+  }
+  .tone-allowance {
+    background: #fff2cc;
+  }
+  .tone-default {
+    background: #fff;
+  }
+}
+
+.budget-sheet .particular-input {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  font-weight: 600;
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  outline: none;
+}
+
+.budget-sheet .status-pill {
+  appearance: none;
+  border: 0;
+  border-radius: 999px;
+  padding: 0.2rem 0.55rem;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+}
+
+.budget-sheet .status-pill.unpaid {
+  background: #c62828;
+  color: #fff;
+}
+
+.budget-sheet .status-pill.paid {
+  background: #2e7d32;
+  color: #fff;
+}
+
+.budget-sheet .status-pill.blank {
+  background: #ececec;
+  color: #666;
+}
+
+.budget-sheet .link-btn {
+  border: 0;
+  background: none;
+  color: var(--ink-muted);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0;
+}
+
+.budget-sheet .link-btn.danger:hover {
+  color: var(--danger);
+}
+
+.budget-sheet .actions {
+  text-align: center;
+  width: 1.5rem;
+}
+
+.budget-sheet tr.tone-paycheck td {
+  background: #d9ead3;
+}
+.budget-sheet tr.tone-housing td {
+  background: #cfe2f3;
+}
+.budget-sheet tr.tone-loan td {
+  background: #fce5cd;
+}
+.budget-sheet tr.tone-utility td {
+  background: #d0e2ff;
+}
+.budget-sheet tr.tone-food td {
+  background: #f4cccc;
+}
+.budget-sheet tr.tone-personal td {
+  background: #ead1dc;
+}
+.budget-sheet tr.tone-allowance td {
+  background: #fff2cc;
+}
+.budget-sheet tr.tone-default td {
+  background: #fff;
+}
+
+.budget-sheet .particular-chip.tone-paycheck {
+  background: #b6d7a8;
+}
+.budget-sheet .particular-chip.tone-housing {
+  background: #9fc5e8;
+}
+.budget-sheet .particular-chip.tone-loan {
+  background: #f9cb9c;
+}
+.budget-sheet .particular-chip.tone-utility {
+  background: #a4c2f4;
+}
+.budget-sheet .particular-chip.tone-food {
+  background: #ea9999;
+}
+.budget-sheet .particular-chip.tone-personal {
+  background: #d5a6bd;
+}
+.budget-sheet .particular-chip.tone-allowance {
+  background: #ffe599;
+}
+.budget-sheet .particular-chip.tone-default {
+  background: #e0e0e0;
+}
+
+.budget-sheet tr.tone-paycheck .period-cell,
+.budget-sheet tr.tone-housing .period-cell,
+.budget-sheet tr.tone-loan .period-cell,
+.budget-sheet tr.tone-utility .period-cell,
+.budget-sheet tr.tone-food .period-cell,
+.budget-sheet tr.tone-personal .period-cell,
+.budget-sheet tr.tone-allowance .period-cell,
+.budget-sheet tr.tone-default .period-cell {
+  background: #fafafa;
+}
