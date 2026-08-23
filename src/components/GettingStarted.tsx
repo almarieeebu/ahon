@@ -54,6 +54,7 @@ export function isFreshBooks(state: {
   budgetPeriods: unknown[];
   transactions: unknown[];
 }): boolean {
+  // Presets still count as "set up" — only truly empty books show Getting started
   return (
     state.accounts.length === 0 &&
     state.categories.length === 0 &&

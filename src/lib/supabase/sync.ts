@@ -30,6 +30,26 @@ function formatSbError(err: { message?: string; code?: string; details?: string 
   return parts.join(" — ") || "Unknown Supabase error";
 }
 
+/** Friendlier copy for known Supabase / PostgREST failures. */
+export function explainCloudError(message: string): string {
+  const m = message.toLowerCase();
+  if (
+    m.includes("pgrst303") ||
+    m.includes("jwt issued at future") ||
+    m.includes("issued at future")
+  ) {
+    return (
+      "Sync paused (clock / token timing). " +
+      "On your phone: set Date & Time to Automatic, then Sign out → Sign in, or wait a minute and refresh. " +
+      "Your books stay on this device meanwhile."
+    );
+  }
+  if (m.includes("schema cache") || m.includes("could not find the table")) {
+    return `${message} — Run supabase/schema.sql in the Supabase SQL Editor, then refresh.`;
+  }
+  return message;
+}
+
 /** Load all user finance data from Supabase into AppState. */
 export async function loadCloudState(
   supabase: Sb,

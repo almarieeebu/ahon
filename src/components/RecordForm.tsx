@@ -32,11 +32,8 @@ export function RecordForm({
   const cash = byKind(state, "cash");
   const savings = byKind(state, "savings");
   const debts = byKind(state, "liability");
-  const spendFrom = [
-    ...cash,
-    ...savings,
-    ...debts.filter((d) => d.mode !== "installment"),
-  ];
+  // Expenses: pay from cash wallets only (not tigum pots / utang)
+  const spendFrom = cash;
   const payFrom = [...cash, ...savings];
 
   const [kind, setKind] = useState<TxKind>(initial?.kind ?? "expense");
@@ -61,6 +58,15 @@ export function RecordForm({
   const [note, setNote] = useState(initial?.note ?? "");
   const [saved, setSaved] = useState(false);
 
+  const particularOptions = useMemo(() => {
+    return state.particulars.filter((p) => {
+      const cat = state.categories.find((c) => c.id === p.categoryId);
+      if (kind === "income") return (cat?.kind ?? "expense") === "income";
+      if (kind === "expense") return (cat?.kind ?? "expense") === "expense";
+      return true;
+    });
+  }, [kind, state.categories, state.particulars]);
+
   useEffect(() => {
     if (!initial) return;
     setKind(initial.kind);
@@ -79,6 +85,19 @@ export function RecordForm({
     setToId(initial.toId ?? "");
     setNote(initial.note);
   }, [initial, state.particulars]);
+
+  useEffect(() => {
+    if (!particularId) return;
+    if (!particularOptions.some((p) => p.id === particularId)) {
+      setParticularId(particularOptions[0]?.id ?? "");
+    }
+  }, [particularId, particularOptions]);
+
+  useEffect(() => {
+    if (kind === "expense" && fromId && !spendFrom.some((a) => a.id === fromId)) {
+      setFromId(spendFrom[0]?.id ?? "");
+    }
+  }, [fromId, kind, spendFrom]);
 
   const categoryOptions = useMemo(() => {
     if (kind === "income") {
@@ -242,7 +261,7 @@ export function RecordForm({
             className="mt-1.5 w-full rounded-xl border border-paper-line bg-white px-3 py-2.5 text-sm"
           >
             <option value="">— None —</option>
-            {state.particulars.map((p) => (
+            {particularOptions.map((p) => (
               <option key={p.id} value={p.id}>
                 {p.name}
               </option>
@@ -256,7 +275,7 @@ export function RecordForm({
                 onClick={onManageParticulars}
                 className="font-semibold text-ink underline-offset-2 hover:underline"
               >
-                Manage in More → Particulars
+                Manage in Menu → Particulars
               </button>
             ) : null}
           </p>
@@ -277,8 +296,8 @@ export function RecordForm({
             {categoryOptions.length === 0 ? (
               <option value="">
                 {kind === "income"
-                  ? "Add an income category in More → Budget setup"
-                  : "Add an expense category in More → Budget setup"}
+                  ? "Add an income category in Menu → Budget setup"
+                  : "Add an expense category in Menu → Budget setup"}
               </option>
             ) : (
               categoryOptions.map((c) => (
@@ -295,7 +314,7 @@ export function RecordForm({
                 onClick={onManageCategories}
                 className="font-semibold text-ink underline-offset-2 hover:underline"
               >
-                Manage in More → Budget setup
+                Manage in Menu → Budget setup
               </button>
             </p>
           ) : null}

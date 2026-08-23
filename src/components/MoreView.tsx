@@ -20,7 +20,15 @@ const MORE_TABS: { id: MoreTab; label: string }[] = [
   { id: "profile", label: "Profile" },
 ];
 
-export function MoreView({ focusTab }: { focusTab?: MoreFocusTab | null }) {
+export function MoreView({
+  focusTab,
+  onOpenManual,
+  onReplayTour,
+}: {
+  focusTab?: MoreFocusTab | null;
+  onOpenManual?: () => void;
+  onReplayTour?: () => void;
+}) {
   const {
     state,
     updateState,
@@ -312,7 +320,34 @@ export function MoreView({ focusTab }: { focusTab?: MoreFocusTab | null }) {
                   Sign in to sync
                 </button>
               ) : null}
+              {onOpenManual ? (
+                <button
+                  type="button"
+                  onClick={onOpenManual}
+                  className="rounded-full bg-ink px-4 py-2 text-sm font-semibold text-paper"
+                >
+                  Open manual
+                </button>
+              ) : null}
+              {onReplayTour ? (
+                <button
+                  type="button"
+                  onClick={onReplayTour}
+                  className="rounded-full border border-ink/20 px-4 py-2 text-sm font-semibold"
+                >
+                  Replay tour
+                </button>
+              ) : null}
             </div>
+          </div>
+
+          <div className="rounded-2xl border border-paper-line bg-white/60 px-4 py-3 text-sm text-ink-muted">
+            Share Ahon with family: send{" "}
+            <span className="font-semibold text-ink">
+              https://ahon-kohl.vercel.app
+            </span>{" "}
+            and ask them to Sign up, then follow the welcome tour. Help tip is
+            always on the top-right of each page.
           </div>
 
           <div className="flex flex-wrap gap-2 border-t border-paper-line pt-4">
@@ -335,7 +370,7 @@ export function MoreView({ focusTab }: { focusTab?: MoreFocusTab | null }) {
               onClick={resetAll}
               className="rounded-full border border-danger/30 px-4 py-2 text-sm font-semibold text-danger"
             >
-              Clear all books
+              Clear all books / reset presets
             </button>
             <input
               ref={fileRef}

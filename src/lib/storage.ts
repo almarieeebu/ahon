@@ -1,20 +1,32 @@
-import { emptyState } from "./defaults";
+import { presetState } from "./defaults";
 import { migrateState } from "./migrate";
 import type { AppState } from "./types";
 
 /** Bumped so old seeded localStorage (ahon.v5) is not reused. */
 export const STORAGE_KEY = "ahon.v6";
 
+function isEmptyBooks(state: AppState): boolean {
+  return (
+    state.accounts.length === 0 &&
+    state.categories.length === 0 &&
+    state.particulars.length === 0 &&
+    state.budgetPeriods.length === 0 &&
+    state.transactions.length === 0
+  );
+}
+
 export function loadState(): AppState {
-  if (typeof window === "undefined") return emptyState();
+  if (typeof window === "undefined") return presetState();
   try {
     const fresh = window.localStorage.getItem(STORAGE_KEY);
     if (fresh) {
-      return migrateState(JSON.parse(fresh)) ?? emptyState();
+      const migrated = migrateState(JSON.parse(fresh));
+      if (!migrated || isEmptyBooks(migrated)) return presetState();
+      return migrated;
     }
-    return emptyState();
+    return presetState();
   } catch {
-    return emptyState();
+    return presetState();
   }
 }
 

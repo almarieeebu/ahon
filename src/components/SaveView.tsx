@@ -26,9 +26,9 @@ export function SaveView() {
   return (
     <section className="space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <p className="max-w-xl text-sm text-ink-muted">
-          Track each savings goal: target, current, and progress. Move pesos
-          from any bank or wallet.
+        <p className="max-w-xl text-base text-ink-muted">
+          Each card is a savings pot. Tap a field to edit name, target, or
+          current amount. Progress shows how close you are to the goal.
         </p>
         <button
           type="button"
@@ -42,89 +42,104 @@ export function SaveView() {
         </button>
       </div>
 
-      <div className="sheet-wrap sheet-stack">
-        <table className="sheet">
-          <thead>
-            <tr>
-              <th>Goal</th>
-              <th className="num">Target Amount</th>
-              <th className="num">Current Amount</th>
-              <th className="num">Progress</th>
-            </tr>
-          </thead>
-          <tbody>
-            {pots.length === 0 ? (
-              <tr>
-                <td colSpan={4} className="empty">
-                  No savings goals yet.
-                </td>
-              </tr>
-            ) : (
-              pots.map((pot) => {
-                const current = balances[pot.id] ?? 0;
-                const hasTarget = pot.goal > 0;
-                const hasCurrent = current > 0;
-                return (
-                  <tr key={pot.id}>
-                    <td>
-                      <input
-                        defaultValue={pot.name}
-                        key={`${pot.id}-name`}
-                        onBlur={(e) => {
-                          const next = e.target.value.trim();
-                          if (next && next !== pot.name) {
-                            upsertAccount({ ...pot, name: next });
-                          }
-                        }}
-                        className="w-full bg-transparent text-sm outline-none"
-                      />
-                    </td>
-                    <td className="num">
-                      <input
-                        type="number"
-                        min={0}
-                        defaultValue={hasTarget ? pot.goal : ""}
-                        placeholder="—"
-                        key={`${pot.id}-goal-${pot.goal}`}
-                        onBlur={(e) => {
-                          const n = Number(e.target.value);
-                          const next = Number.isFinite(n) ? n : 0;
-                          if (next !== pot.goal) {
-                            upsertAccount({ ...pot, goal: next });
-                          }
-                        }}
-                        className="w-full bg-transparent text-right text-sm outline-none"
-                      />
-                    </td>
-                    <td className="num">
-                      <input
-                        type="number"
-                        min={0}
-                        defaultValue={
-                          hasCurrent ? Math.round(current * 100) / 100 : ""
+      {pots.length === 0 ? (
+        <p className="sheet-empty">
+          No savings goals yet. Tap Tigum actions → New savings goal.
+        </p>
+      ) : (
+        <ul className="space-y-3">
+          {pots.map((pot) => {
+            const current = balances[pot.id] ?? 0;
+            const goal = pot.goal;
+            const progress =
+              goal > 0 ? Math.min(100, Math.round((current / goal) * 100)) : 0;
+            const pctLabel =
+              goal > 0 ? pctExact(current, goal) : "Set a target";
+
+            return (
+              <li
+                key={pot.id}
+                className="rounded-2xl border border-paper-line bg-white p-4"
+              >
+                <label className="block text-xs font-semibold uppercase tracking-wide text-ink-muted">
+                  Goal name
+                  <input
+                    defaultValue={pot.name}
+                    key={`${pot.id}-name`}
+                    onBlur={(e) => {
+                      const next = e.target.value.trim();
+                      if (next && next !== pot.name) {
+                        upsertAccount({ ...pot, name: next });
+                      }
+                    }}
+                    className="mt-1.5 w-full rounded-xl border border-paper-line bg-paper/40 px-3 py-2.5 text-base font-semibold text-ink outline-none"
+                  />
+                </label>
+
+                <div className="mt-3 grid grid-cols-2 gap-3">
+                  <label className="block text-xs font-semibold uppercase tracking-wide text-ink-muted">
+                    Target (₱)
+                    <input
+                      type="number"
+                      min={0}
+                      defaultValue={goal > 0 ? goal : ""}
+                      placeholder="0"
+                      key={`${pot.id}-goal-${goal}`}
+                      onBlur={(e) => {
+                        const n = Number(e.target.value);
+                        const next = Number.isFinite(n) ? n : 0;
+                        if (next !== pot.goal) {
+                          upsertAccount({ ...pot, goal: next });
                         }
-                        placeholder="—"
-                        key={`${pot.id}-bal-${Math.round(current * 100)}`}
-                        onBlur={(e) => {
-                          const n = Number(e.target.value);
-                          const next = Number.isFinite(n) ? n : 0;
-                          if (next !== current) setCurrentBalance(pot.id, next);
-                        }}
-                        className="w-full bg-transparent text-right text-sm outline-none"
-                      />
-                    </td>
-                    <td className="num">
-                      {hasTarget && hasCurrent
-                        ? pctExact(current, pot.goal)
-                        : ""}
-                    </td>
-                  </tr>
-                );
-              })
-            )}
-          </tbody>
-        </table>
-      </div>
+                      }}
+                      className="mt-1.5 w-full rounded-xl border border-paper-line bg-paper/40 px-3 py-2.5 text-base text-ink outline-none"
+                    />
+                  </label>
+                  <label className="block text-xs font-semibold uppercase tracking-wide text-ink-muted">
+                    Current (₱)
+                    <input
+                      type="number"
+                      min={0}
+                      defaultValue={
+                        current !== 0 ? Math.round(current * 100) / 100 : ""
+                      }
+                      placeholder="0"
+                      key={`${pot.id}-bal-${Math.round(current * 100)}`}
+                      onBlur={(e) => {
+                        const n = Number(e.target.value);
+                        const next = Number.isFinite(n) ? n : 0;
+                        if (next !== current) setCurrentBalance(pot.id, next);
+                      }}
+                      className="mt-1.5 w-full rounded-xl border border-paper-line bg-paper/40 px-3 py-2.5 text-base text-ink outline-none"
+                    />
+                  </label>
+                </div>
+
+                <div className="mt-4">
+                  <div className="flex items-baseline justify-between gap-2">
+                    <span className="text-xs font-semibold uppercase tracking-wide text-ink-muted">
+                      Progress
+                    </span>
+                    <span className="font-display text-lg font-semibold text-ink">
+                      {pctLabel}
+                    </span>
+                  </div>
+                  <div className="mt-2 h-2.5 overflow-hidden rounded-full bg-paper-soft">
+                    <div
+                      className="h-full rounded-full bg-gold-deep transition-[width]"
+                      style={{ width: `${goal > 0 ? progress : 0}%` }}
+                    />
+                  </div>
+                  <p className="mt-2 text-sm text-ink-muted">
+                    {phpSmart(current)}
+                    {goal > 0 ? ` of ${phpSmart(goal)}` : " · no target yet"}
+                  </p>
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      )}
 
       <Modal
         open={modalOpen}
@@ -227,7 +242,7 @@ function MoveForm({
       <button
         type="button"
         onClick={onBack}
-        className="text-xs font-semibold text-ink-muted"
+        className="text-sm font-semibold text-ink-muted"
       >
         ← Back
       </button>
@@ -236,7 +251,7 @@ function MoveForm({
         <select
           value={fromId}
           onChange={(e) => setFromId(e.target.value)}
-          className="mt-1 w-full rounded-xl border border-paper-line bg-white px-3 py-2 text-sm font-normal text-ink"
+          className="mt-1 w-full rounded-xl border border-paper-line bg-white px-3 py-2.5 text-base font-normal text-ink"
         >
           {banks.map((a) => (
             <option key={a.id} value={a.id}>
@@ -250,7 +265,7 @@ function MoveForm({
         <select
           value={toId}
           onChange={(e) => setToId(e.target.value)}
-          className="mt-1 w-full rounded-xl border border-paper-line bg-white px-3 py-2 text-sm font-normal text-ink"
+          className="mt-1 w-full rounded-xl border border-paper-line bg-white px-3 py-2.5 text-base font-normal text-ink"
         >
           {pots.map((p) => (
             <option key={p.id} value={p.id}>
@@ -265,14 +280,14 @@ function MoveForm({
           inputMode="decimal"
           value={amount}
           onChange={(e) => setAmount(e.target.value)}
-          className="mt-1 w-full rounded-xl border border-paper-line px-3 py-2 text-sm font-normal text-ink"
+          className="mt-1 w-full rounded-xl border border-paper-line px-3 py-2.5 text-base font-normal text-ink"
           placeholder="1000"
           required
         />
       </label>
       <button
         type="submit"
-        className="w-full rounded-full bg-ink py-2.5 text-sm font-semibold text-paper"
+        className="w-full rounded-full bg-ink py-3 text-base font-semibold text-paper"
       >
         Move to tigum
       </button>
@@ -305,7 +320,7 @@ function NewGoalForm({
       <button
         type="button"
         onClick={onBack}
-        className="text-xs font-semibold text-ink-muted"
+        className="text-sm font-semibold text-ink-muted"
       >
         ← Back
       </button>
@@ -313,22 +328,22 @@ function NewGoalForm({
         value={name}
         onChange={(e) => setName(e.target.value)}
         placeholder="e.g. Christmas, bahay repairs"
-        className="w-full rounded-xl border border-paper-line px-3 py-2 text-sm"
+        className="w-full rounded-xl border border-paper-line px-3 py-2.5 text-base"
         required
       />
-      <label className="block text-xs text-ink-muted">
+      <label className="block text-sm text-ink-muted">
         Target amount (optional)
         <input
           type="number"
           min={0}
           value={goal}
           onChange={(e) => setGoal(e.target.value)}
-          className="mt-1 w-full rounded-xl border border-paper-line px-3 py-2 text-sm text-ink"
+          className="mt-1 w-full rounded-xl border border-paper-line px-3 py-2.5 text-base text-ink"
         />
       </label>
       <button
         type="submit"
-        className="w-full rounded-full bg-ink py-2.5 text-sm font-semibold text-paper"
+        className="w-full rounded-full bg-ink py-3 text-base font-semibold text-paper"
       >
         Add goal
       </button>

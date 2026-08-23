@@ -22,6 +22,9 @@ type AuthValue = {
   cloudEnabled: boolean;
   user: User | null;
   session: Session | null;
+  /** Email-confirm / OAuth redirect message (success or failure) */
+  authNotice: string | null;
+  clearAuthNotice: () => void;
   signIn: (email: string, password: string) => Promise<string | null>;
   signUp: (email: string, password: string) => Promise<string | null>;
   signOut: () => Promise<void>;
@@ -34,31 +37,79 @@ type AuthValue = {
 
 const AuthContext = createContext<AuthValue | null>(null);
 
+function stripAuthParams() {
+  const url = new URL(window.location.href);
+  [
+    "code",
+    "error",
+    "error_code",
+    "error_description",
+    "state",
+    "token_hash",
+    "type",
+  ].forEach((key) => url.searchParams.delete(key));
+  const next = url.pathname + url.search + url.hash;
+  window.history.replaceState({}, "", next || "/");
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const cloudEnabled = isSupabaseConfigured();
   const supabase = useMemo(() => createClient(), []);
   const [ready, setReady] = useState(!cloudEnabled);
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
-  // Local-only = no cloud login. Default true only when Supabase env is missing.
-  const [localOnly, setLocalOnly] = useState(!cloudEnabled);
+  // false until Sign in path or "continue local" — lets Landing show first
+  const [localOnly, setLocalOnly] = useState(false);
+  const [authNotice, setAuthNotice] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!supabase) {
-      setReady(true);
-      setLocalOnly(true);
-      return;
-    }
+    if (!supabase) return;
 
     let mounted = true;
-    supabase.auth.getSession().then(({ data }) => {
+
+    async function boot() {
+      const url = new URL(window.location.href);
+      const code = url.searchParams.get("code");
+      const errRaw =
+        url.searchParams.get("error_description") ||
+        url.searchParams.get("error");
+
+      if (errRaw) {
+        const msg = decodeURIComponent(errRaw.replace(/\+/g, " "));
+        if (mounted) setAuthNotice(msg);
+      }
+
+      if (code) {
+        const { data, error } = await supabase!.auth.exchangeCodeForSession(code);
+        stripAuthParams();
+        if (!mounted) return;
+        if (error) {
+          setAuthNotice(
+            /expired|invalid|already|flow state/i.test(error.message)
+              ? "That email link was already used or expired. Sign in with your email and password."
+              : error.message,
+          );
+        } else if (data.session) {
+          setSession(data.session);
+          setUser(data.session.user);
+          setLocalOnly(false);
+          setAuthNotice("Email confirmed — you’re signed in.");
+          setReady(true);
+          return;
+        }
+      } else if (errRaw) {
+        stripAuthParams();
+      }
+
+      const { data } = await supabase!.auth.getSession();
       if (!mounted) return;
       setSession(data.session);
       setUser(data.session?.user ?? null);
-      // Keep localOnly as-is (false) so AuthScreen shows when no session.
       if (data.session) setLocalOnly(false);
       setReady(true);
-    });
+    }
+
+    void boot();
 
     const { data: sub } = supabase.auth.onAuthStateChange((_event, next) => {
       setSession(next);
@@ -71,6 +122,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       sub.subscription.unsubscribe();
     };
   }, [supabase]);
+
+  const clearAuthNotice = useCallback(() => setAuthNotice(null), []);
 
   const signIn = useCallback(
     async (email: string, password: string) => {
@@ -114,6 +167,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       cloudEnabled,
       user,
       session,
+      authNotice,
+      clearAuthNotice,
       signIn,
       signUp,
       signOut,
@@ -126,6 +181,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       cloudEnabled,
       user,
       session,
+      authNotice,
+      clearAuthNotice,
       signIn,
       signUp,
       signOut,

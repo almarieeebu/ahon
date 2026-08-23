@@ -11,7 +11,7 @@ import {
   type ReactNode,
 } from "react";
 import { useAuth } from "@/context/AuthContext";
-import { emptyState } from "@/lib/defaults";
+import { presetState } from "@/lib/defaults";
 import { monthKey, uid } from "@/lib/money";
 import { emptyBudgetLine } from "@/lib/periodBudget";
 import { resolveParticularRef } from "@/lib/refs";
@@ -19,7 +19,11 @@ import { scheduleRemaining } from "@/lib/schedule";
 import { accountBalances } from "@/lib/selectors";
 import { loadState, saveState } from "@/lib/storage";
 import { createClient } from "@/lib/supabase/client";
-import { loadCloudState, saveCloudState } from "@/lib/supabase/sync";
+import {
+  explainCloudError,
+  loadCloudState,
+  saveCloudState,
+} from "@/lib/supabase/sync";
 import type {
   Account,
   AppState,
@@ -78,7 +82,7 @@ export function FinanceProvider({ children }: { children: ReactNode }) {
   const { user, localOnly } = useAuth();
   const cloudUserId = !localOnly && user ? user.id : null;
 
-  const [state, setState] = useState<AppState>(emptyState);
+  const [state, setState] = useState<AppState>(presetState);
   const [ready, setReady] = useState(false);
   const [month, setMonth] = useState(monthKey());
   const [savedAt, setSavedAt] = useState<number | null>(null);
@@ -104,13 +108,9 @@ export function FinanceProvider({ children }: { children: ReactNode }) {
           );
           if (cancelled) return;
           if (loadError) {
-            setCloudError(
-              loadError.includes("schema cache") ||
-                loadError.includes("Could not find the table")
-                ? `${loadError} — Run supabase/schema.sql in the Supabase SQL Editor, then refresh.`
-                : loadError,
-            );
-            setState(emptyState());
+            setCloudError(explainCloudError(loadError));
+            // Keep whatever is already on this device instead of wiping books
+            setState(loadState());
             setReady(true);
             return;
           }
@@ -118,8 +118,8 @@ export function FinanceProvider({ children }: { children: ReactNode }) {
             setState(cloud);
             saveState(cloud); // keep a local cache
           } else {
-            // Empty cloud → start blank (no sample / local seed upload)
-            const blank = emptyState();
+            // Empty cloud → common presets (categories, particulars, cash)
+            const blank = presetState();
             setState(blank);
             saveState(blank);
             const { error } = await saveCloudState(
@@ -162,7 +162,7 @@ export function FinanceProvider({ children }: { children: ReactNode }) {
       const supabase = createClient();
       if (!supabase) return;
       void saveCloudState(supabase, cloudUserId, state).then(({ error }) => {
-        setCloudError(error);
+        setCloudError(error ? explainCloudError(error) : null);
         if (!error) setSavedAt(Date.now());
       });
     }, 800);
@@ -512,12 +512,12 @@ export function FinanceProvider({ children }: { children: ReactNode }) {
   const resetAll = useCallback(() => {
     if (
       !window.confirm(
-        "Clear all Ahon data? Accounts, budget, and ledger will be empty.",
+        "Reset to common starter books? Categories, particulars, and Cash will be restored. Ledger & budget periods will clear.",
       )
     ) {
       return;
     }
-    setState(emptyState());
+    setState(presetState());
   }, []);
 
   const balances = useMemo(() => accountBalances(state), [state]);

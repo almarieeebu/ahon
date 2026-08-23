@@ -19,9 +19,10 @@ const sora = Sora({
 export const metadata: Metadata = {
   title: "Ahon — money journal",
   description:
-    "Private on-device journal for cash, tigum, and every utang you still owe.",
+    "Private money journal for cash, tigum, and every utang you still owe.",
   applicationName: "Ahon",
-  icons: { icon: "/favicon.svg" },
+  manifest: "/manifest.webmanifest",
+  icons: { icon: "/favicon.svg", apple: "/favicon.svg" },
   appleWebApp: {
     capable: true,
     title: "Ahon",

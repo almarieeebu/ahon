@@ -56,11 +56,23 @@ body {
   background: var(--paper);
   color: var(--ink);
   font-family: var(--font-source), sans-serif;
+  font-size: 16px;
   -webkit-font-smoothing: antialiased;
 }
 
 .font-display {
   font-family: var(--font-sora), sans-serif;
+}
+
+.landing-root {
+  background: var(--paper);
+}
+
+.landing-hero-wash {
+  background:
+    radial-gradient(ellipse 80% 60% at 20% 10%, rgba(201, 168, 107, 0.35), transparent 55%),
+    radial-gradient(ellipse 70% 50% at 90% 30%, rgba(47, 111, 94, 0.2), transparent 50%),
+    linear-gradient(165deg, #0d1413 0%, #161f1e 45%, #1d2726 100%);
 }
 
 :focus-visible {
