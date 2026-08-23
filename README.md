@@ -33,14 +33,15 @@ Build accounts, categories, and particulars under **More** — nothing is pre-se
 
 ## Deploy (Vercel)
 
-1. Push this repo to GitHub.
-2. Vercel → Import project → Framework: Next.js.
-3. Add env vars (same as `.env.local`):
+Repo: [github.com/almarieeebu/ahon](https://github.com/almarieeebu/ahon) (private)
+
+1. [vercel.com/new](https://vercel.com/new) → Import **almarieeebu/ahon**
+2. Framework: **Next.js** (auto-detect)
+3. Environment Variables → add (from your local `.env.local`):
    - `NEXT_PUBLIC_SUPABASE_URL`
    - `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` (or `NEXT_PUBLIC_SUPABASE_ANON_KEY`)
-4. Deploy.
-5. Supabase → Authentication → URL Configuration:
-   - **Site URL** = your Vercel URL (e.g. `https://ahon.vercel.app`)
-   - **Redirect URLs** include that URL (and `http://localhost:3100` for local)
-
-No other code changes are required for a basic live deploy.
+4. Deploy → copy the production URL
+5. Supabase → **Authentication** → **URL Configuration**:
+   - **Site URL** = `https://YOUR-APP.vercel.app`
+   - **Redirect URLs** = that URL + `http://localhost:3100/**`
+6. Open the Vercel URL → Sign up / Sign in → confirm sync under **More → Profile**
