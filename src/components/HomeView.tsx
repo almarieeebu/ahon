@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { AffordThisMonthCard } from "@/components/AffordThisMonthCard";
+import { CriticalAlertsPanel } from "@/components/CriticalAlertsPanel";
 import {
   GettingStarted,
   isFreshBooks,
@@ -8,6 +10,8 @@ import {
 import type { MoreFocusTab } from "@/components/MoreView";
 import { OverviewDashboard } from "@/components/YearBudgetDashboard";
 import { useFinance } from "@/context/FinanceContext";
+import { monthAffordability } from "@/lib/affordability";
+import { buildFinanceAlerts, type AlertAction } from "@/lib/alerts";
 import { monthKey, phpSmart } from "@/lib/money";
 import {
   availableBudgetMonths,
@@ -24,16 +28,31 @@ type Props = {
   onOpenMore: (focus: MoreFocusTab) => void;
   onOpenBudget: () => void;
   onOpenLedger: () => void;
+  onOpenUtang: () => void;
 };
 
-export function HomeView({ onOpenMore, onOpenBudget, onOpenLedger }: Props) {
-  const { state, balances, month } = useFinance();
+export function HomeView({
+  onOpenMore,
+  onOpenBudget,
+  onOpenLedger,
+  onOpenUtang,
+}: Props) {
+  const { state, balances, month, syncMode, cloudError } = useFinance();
   const fresh = isFreshBooks(state);
   const cash = sumKind(state, balances, "cash");
   const tigum = sumKind(state, balances, "savings");
   const utang = sumKind(state, balances, "liability");
   const worth = netWorth(state, balances);
   const banks = byKind(state, "cash");
+  const activeMonth = month || monthKey();
+  const afford = useMemo(
+    () => monthAffordability(state, activeMonth, cash),
+    [state, activeMonth, cash],
+  );
+  const alerts = useMemo(
+    () => buildFinanceAlerts(state, { monthKey: activeMonth }),
+    [state, activeMonth],
+  );
 
   const years = useMemo(
     () => availableBudgetYears(state.budgetPeriods),
@@ -64,6 +83,12 @@ export function HomeView({ onOpenMore, onOpenBudget, onOpenLedger }: Props) {
     }
   }, [months, selectedMonth]);
 
+  function onAlertAction(action: AlertAction) {
+    if (action === "utang") onOpenUtang();
+    else if (action === "budget") onOpenBudget();
+    else onOpenLedger();
+  }
+
   if (fresh) {
     return (
       <section className="space-y-6">
@@ -78,25 +103,54 @@ export function HomeView({ onOpenMore, onOpenBudget, onOpenLedger }: Props) {
 
   return (
     <section className="space-y-6">
+      <p className="text-xs text-ink-muted">
+        Sync:{" "}
+        <span className="font-semibold text-ink">
+          {syncMode === "cloud" ? "Cloud (Supabase)" : "This device only"}
+        </span>
+        {cloudError ? (
+          <span className="ml-2 text-danger" role="alert">
+            · {cloudError}
+          </span>
+        ) : null}
+      </p>
+      <AffordThisMonthCard snap={afford} />
+      <CriticalAlertsPanel alerts={alerts} onAction={onAlertAction} />
+
       <div className="rounded-2xl border border-paper-line bg-white/70 p-5">
         <p className="text-xs font-semibold uppercase tracking-[0.14em] text-gold-deep">
           Net position
         </p>
-        <p
-          className={`mt-2 font-display text-4xl font-semibold tracking-tight ${worth < 0 ? "text-danger" : "text-ink"}`}
-        >
-          {phpSmart(worth)}
-        </p>
+        <dl className="mt-4 space-y-2 text-sm">
+          <div className="flex justify-between gap-3">
+            <dt className="text-ink-muted">Cash</dt>
+            <dd className={`font-semibold ${cash < 0 ? "text-danger" : "text-ink"}`}>
+              {phpSmart(cash)}
+            </dd>
+          </div>
+          <div className="flex justify-between gap-3">
+            <dt className="text-ink-muted">Tigum</dt>
+            <dd className="font-semibold text-ink">{phpSmart(tigum)}</dd>
+          </div>
+          <div className="flex justify-between gap-3">
+            <dt className="text-ink-muted">Utang</dt>
+            <dd className={`font-semibold ${utang > 0 ? "text-danger" : "text-ink"}`}>
+              {phpSmart(utang)}
+            </dd>
+          </div>
+          <div className="flex justify-between gap-3 border-t border-paper-line pt-2">
+            <dt className="font-medium text-ink">Net position</dt>
+            <dd
+              className={`font-display text-xl font-semibold ${worth < 0 ? "text-danger" : "text-ink"}`}
+            >
+              {phpSmart(worth)}
+            </dd>
+          </div>
+        </dl>
         <p className="mt-2 text-sm text-ink-muted">
           Cash + tigum minus remaining utang.
         </p>
       </div>
-
-      <dl className="grid grid-cols-3 gap-2">
-        <Stat label="Cash" value={phpSmart(cash)} warn={cash < 0} />
-        <Stat label="Tigum" value={phpSmart(tigum)} />
-        <Stat label="Utang left" value={phpSmart(utang)} warn={utang > 0} />
-      </dl>
 
       <div className="space-y-4">
         <div className="flex flex-wrap gap-2">
@@ -205,28 +259,5 @@ export function HomeView({ onOpenMore, onOpenBudget, onOpenLedger }: Props) {
         </div>
       ) : null}
     </section>
-  );
-}
-
-function Stat({
-  label,
-  value,
-  warn,
-}: {
-  label: string;
-  value: string;
-  warn?: boolean;
-}) {
-  return (
-    <div className="rounded-xl border border-paper-line bg-white/50 px-3 py-3">
-      <dt className="text-[11px] font-semibold uppercase tracking-wide text-ink-muted">
-        {label}
-      </dt>
-      <dd
-        className={`mt-1 font-display text-base font-semibold sm:text-lg ${warn ? "text-danger" : "text-ink"}`}
-      >
-        {value}
-      </dd>
-    </div>
   );
 }

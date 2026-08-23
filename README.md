@@ -49,5 +49,12 @@ Build accounts, categories, and particulars under **Menu → Setup** — presets
    - **Redirect URLs** include:
      - `https://ahon-kohl.vercel.app/**`
      - `http://localhost:3100/**`
-3. Open the live site → Sign in → **Menu → Profile** should say **Synced to Supabase**
-4. Confirm email signup: confirmation link must land on the Site URL (or localhost in dev) so `?code=` can exchange for a session
+3. Supabase → **SQL Editor**: re-run `supabase/schema.sql` (or the migrate block at the bottom) so `transactions.kind` allows `adjustment`, and confirm **RLS is enabled** on all Ahon tables with `*_own` policies (`user_id = auth.uid()` / profiles `id = auth.uid()`).
+4. Open the live site → Sign in → **Menu → Profile** should say **Synced to Supabase**
+5. Confirm email signup: confirmation link must land on the Site URL (or localhost in dev) so `?code=` can exchange for a session
+
+### Financial safety (v0.2)
+
+- Bayad utang defaults to a tracked cash/wallet; “untracked source” is an explicit choice.
+- Reconciling balances posts a **Balance adjustment** ledger row (opening balance stays put).
+- Home **Monthly survival** shows income vs essentials vs debt dues and a deficit warning.

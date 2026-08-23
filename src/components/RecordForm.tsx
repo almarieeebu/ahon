@@ -3,6 +3,7 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useFinance } from "@/context/FinanceContext";
 import { todayIso } from "@/lib/money";
+import { UNTRACKED_PAYMENT_SOURCE } from "@/lib/paymentSource";
 import { findParticular } from "@/lib/refs";
 import { nextUnpaid } from "@/lib/schedule";
 import { byKind } from "@/lib/selectors";
@@ -14,6 +15,14 @@ const KINDS: { id: TxKind; label: string }[] = [
   { id: "transfer", label: "Move to tigum" },
   { id: "payment", label: "Bayad utang" },
 ];
+
+function initialFromId(tx: Transaction | null | undefined, cashId: string): string {
+  if (!tx) return cashId;
+  if (tx.kind === "payment") {
+    return tx.fromId ?? UNTRACKED_PAYMENT_SOURCE;
+  }
+  return tx.fromId ?? cashId;
+}
 
 export function RecordForm({
   initial,
@@ -51,7 +60,9 @@ export function RecordForm({
       state.particulars[0]?.id ??
       "",
   );
-  const [fromId, setFromId] = useState(initial?.fromId ?? cash[0]?.id ?? "");
+  const [fromId, setFromId] = useState(
+    initialFromId(initial, cash[0]?.id ?? ""),
+  );
   const [toId, setToId] = useState(
     initial?.toId ?? savings[0]?.id ?? debts[0]?.id ?? "",
   );
@@ -81,10 +92,10 @@ export function RecordForm({
         })?.id ??
         "",
     );
-    setFromId(initial.fromId ?? "");
+    setFromId(initialFromId(initial, cash[0]?.id ?? ""));
     setToId(initial.toId ?? "");
     setNote(initial.note);
-  }, [initial, state.particulars]);
+  }, [initial, state.particulars, cash]);
 
   useEffect(() => {
     if (!particularId) return;
@@ -145,8 +156,37 @@ export function RecordForm({
     const value = Number(amount);
     const resolvedTo =
       kind === "expense" ? null : (toId || toOptions[0]?.id || null);
-    const resolvedFrom =
-      kind === "income" ? null : (fromId || spendFrom[0]?.id || null);
+
+    let resolvedFrom: string | null = null;
+    if (kind === "income") {
+      resolvedFrom = null;
+    } else if (kind === "payment") {
+      if (fromId === UNTRACKED_PAYMENT_SOURCE) {
+        resolvedFrom = null;
+      } else if (fromId && payFrom.some((a) => a.id === fromId)) {
+        resolvedFrom = fromId;
+      } else if (payFrom[0]?.id) {
+        resolvedFrom = payFrom[0].id;
+      } else {
+        window.alert(
+          "Add a cash or savings account first, or choose “Payment came from an untracked source”.",
+        );
+        return;
+      }
+    } else if (kind === "transfer") {
+      if (!fromId || !payFrom.some((a) => a.id === fromId)) {
+        window.alert("Choose which account the transfer is taken from.");
+        return;
+      }
+      resolvedFrom = fromId;
+    } else {
+      resolvedFrom = fromId || spendFrom[0]?.id || null;
+      if (!resolvedFrom) {
+        window.alert("Add a cash account to pay from.");
+        return;
+      }
+    }
+
     const particular = showTags
       ? state.particulars.find((p) => p.id === particularId)
       : undefined;
@@ -187,7 +227,10 @@ export function RecordForm({
       particularId: particular?.id ?? null,
       fromId: resolvedFrom,
       toId: resolvedTo,
-      note: note.trim(),
+      note:
+        kind === "payment" && resolvedFrom == null && !note.trim()
+          ? "Paid from untracked source"
+          : note.trim(),
       installmentId: initial?.installmentId,
     };
 
@@ -363,7 +406,7 @@ export function RecordForm({
         </label>
       ) : null}
 
-      {kind === "transfer" || kind === "payment" ? (
+      {kind === "transfer" ? (
         <label className="block">
           <span className="text-xs font-semibold uppercase tracking-wide text-ink-muted">
             Taken from
@@ -372,14 +415,51 @@ export function RecordForm({
             value={fromId}
             onChange={(e) => setFromId(e.target.value)}
             className="mt-1.5 w-full rounded-xl border border-paper-line bg-white px-3 py-2.5 text-sm"
+            required
           >
-            <option value="">Payroll / none</option>
+            {payFrom.length === 0 ? (
+              <option value="">Add a cash account first</option>
+            ) : (
+              payFrom.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.name}
+                </option>
+              ))
+            )}
+          </select>
+        </label>
+      ) : null}
+
+      {kind === "payment" ? (
+        <label className="block">
+          <span className="text-xs font-semibold uppercase tracking-wide text-ink-muted">
+            Pay from
+          </span>
+          <select
+            value={fromId || (payFrom[0]?.id ?? UNTRACKED_PAYMENT_SOURCE)}
+            onChange={(e) => setFromId(e.target.value)}
+            className="mt-1.5 w-full rounded-xl border border-paper-line bg-white px-3 py-2.5 text-sm"
+            required
+          >
             {payFrom.map((a) => (
               <option key={a.id} value={a.id}>
                 {a.name}
               </option>
             ))}
+            <option value={UNTRACKED_PAYMENT_SOURCE}>
+              Payment came from an untracked source
+            </option>
           </select>
+          {fromId === UNTRACKED_PAYMENT_SOURCE ? (
+            <p className="mt-1.5 text-xs text-gold-deep">
+              Debt will drop, but no cash/wallet balance will change. Use only
+              when the money did not come from an account in Ahon.
+            </p>
+          ) : (
+            <p className="mt-1.5 text-xs text-ink-muted">
+              Cash or wallet decreases with this bayad.
+            </p>
+          )}
         </label>
       ) : null}
 

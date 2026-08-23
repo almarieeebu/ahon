@@ -114,6 +114,10 @@ export function SaveView() {
                     />
                   </label>
                 </div>
+                <p className="mt-1 text-xs text-ink-muted">
+                  Changing Current posts a Balance adjustment (does not rewrite
+                  opening).
+                </p>
 
                 <div className="mt-4">
                   <div className="flex items-baseline justify-between gap-2">

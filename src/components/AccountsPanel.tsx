@@ -41,7 +41,8 @@ export function AccountsPanel() {
           <p className="mt-1 text-sm text-ink-muted">
             Add every account you actually use — BDO, BPI, GCash, Maya, cash on
             hand. Rename, set the current balance, or archive one you no longer
-            need.
+            need. Opening balance is the start figure; reconcile posts an
+            adjustment so history stays honest.
           </p>
         </div>
         <button
@@ -81,7 +82,23 @@ export function AccountsPanel() {
                 </span>
               </div>
               <label className="mt-3 block text-xs text-ink-muted">
-                Set current balance
+                Opening balance
+                <input
+                  type="number"
+                  min={0}
+                  defaultValue={a.openingBalance}
+                  key={`${a.id}-open-${a.openingBalance}`}
+                  onBlur={(e) => {
+                    const n = Number(e.target.value);
+                    if (Number.isFinite(n) && n !== a.openingBalance) {
+                      upsertAccount({ ...a, openingBalance: n });
+                    }
+                  }}
+                  className="mt-1 w-full rounded-lg border border-paper-line px-2 py-1.5 text-sm text-ink"
+                />
+              </label>
+              <label className="mt-2 block text-xs text-ink-muted">
+                Reconcile to bank balance
                 <input
                   type="number"
                   min={0}
@@ -97,6 +114,10 @@ export function AccountsPanel() {
                   className="mt-1 w-full rounded-lg border border-paper-line px-2 py-1.5 text-sm text-ink"
                 />
               </label>
+              <p className="mt-1 text-[11px] text-ink-muted">
+                Reconciliation posts a Balance adjustment in Ledger — opening
+                balance stays unchanged.
+              </p>
               <button
                 type="button"
                 onClick={() => {

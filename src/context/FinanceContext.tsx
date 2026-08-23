@@ -12,7 +12,7 @@ import {
 } from "react";
 import { useAuth } from "@/context/AuthContext";
 import { presetState } from "@/lib/defaults";
-import { monthKey, uid } from "@/lib/money";
+import { monthKey, todayIso, uid } from "@/lib/money";
 import { emptyBudgetLine } from "@/lib/periodBudget";
 import { resolveParticularRef } from "@/lib/refs";
 import { scheduleRemaining } from "@/lib/schedule";
@@ -413,14 +413,38 @@ export function FinanceProvider({ children }: { children: ReactNode }) {
 
   const setCurrentBalance = useCallback((id: string, amount: number) => {
     setState((prev) => {
+      const account = prev.accounts.find((a) => a.id === id);
+      if (!account) return prev;
       const current = accountBalances(prev)[id] ?? 0;
-      const delta = amount - current;
-      return {
-        ...prev,
-        accounts: prev.accounts.map((a) =>
-          a.id === id ? { ...a, openingBalance: a.openingBalance + delta } : a,
-        ),
+      const target = Math.round(amount * 100) / 100;
+      const delta = Math.round((target - current) * 100) / 100;
+      if (Math.abs(delta) < 0.005) return prev;
+
+      const abs = Math.abs(delta);
+      let fromId: string | null = null;
+      let toId: string | null = null;
+      if (account.kind === "liability") {
+        if (delta < 0) toId = id; // owe less
+        else fromId = id; // owe more
+      } else if (delta < 0) {
+        fromId = id; // cash/savings down
+      } else {
+        toId = id; // cash/savings up
+      }
+
+      const tx: Transaction = {
+        id: uid(),
+        date: todayIso(),
+        kind: "adjustment",
+        amount: abs,
+        category: "adjustment",
+        particular: "Balance adjustment",
+        particularId: null,
+        fromId,
+        toId,
+        note: "Bank reconciliation",
       };
+      return { ...prev, transactions: [...prev.transactions, tx] };
     });
   }, []);
 

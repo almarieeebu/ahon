@@ -109,7 +109,7 @@ create table if not exists public.transactions (
   id text primary key,
   user_id uuid not null references auth.users (id) on delete cascade,
   tx_date date not null,
-  kind text not null check (kind in ('income', 'expense', 'transfer', 'payment')),
+  kind text not null check (kind in ('income', 'expense', 'transfer', 'payment', 'adjustment')),
   amount numeric(14, 2) not null,
   category text not null default '',
   particular text not null default '',
@@ -190,3 +190,8 @@ create policy "transactions_own" on public.transactions
 
 -- Reload PostgREST schema cache (fixes "table not in schema cache" after create)
 notify pgrst, 'reload schema';
+
+-- ---------- migrate existing DBs: allow balance adjustments ----------
+alter table public.transactions drop constraint if exists transactions_kind_check;
+alter table public.transactions add constraint transactions_kind_check
+  check (kind in ('income', 'expense', 'transfer', 'payment', 'adjustment'));

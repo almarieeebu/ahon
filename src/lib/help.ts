@@ -59,9 +59,9 @@ export const PAGE_TIPS: Record<TabId, PageTip> = {
   home: {
     title: "Home",
     bullets: [
-      "See net position: cash + tigum − remaining utang.",
-      "Yearly / Monthly overview compares budget plan vs ledger actuals.",
-      "If books are empty, follow Getting started on this screen.",
+      "First answer: Can I afford my obligations this month?",
+      "Critical alerts: overdue CC/housing, bills due soon, cash shortage, debt priority.",
+      "If income < obligations, Survival Mode shows pay-first order.",
     ],
   },
   ledger: {
@@ -84,6 +84,7 @@ export const PAGE_TIPS: Record<TabId, PageTip> = {
     title: "Utang",
     bullets: [
       "Add each loan or credit card you still owe.",
+      "Overdue and Priority badges surface what needs attention first.",
       "Mark installment bayad when you pay — it also logs in Ledger.",
       "Remaining balance feeds the Home “Utang left” number.",
     ],

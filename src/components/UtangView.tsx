@@ -3,6 +3,7 @@
 import { FormEvent, useMemo, useState } from "react";
 import { Modal } from "@/components/Modal";
 import { useFinance } from "@/context/FinanceContext";
+import { accountIsOverdue } from "@/lib/alerts";
 import { emptyAccount } from "@/lib/defaults";
 import { phpSmart, todayIso } from "@/lib/money";
 import { projectPayoff } from "@/lib/payoff";
@@ -95,6 +96,7 @@ export function UtangView() {
           balances={balances}
           fromId={fromId}
           onFromId={setFromId}
+          overdue={accountIsOverdue(state, loan.id)}
           onPay={(rowId) => payInstallment(loan.id, rowId, fromId || null)}
           onUnpay={(rowId) => unpayInstallment(loan.id, rowId)}
           onSave={(next) => upsertAccount(next)}
@@ -111,6 +113,8 @@ export function UtangView() {
           key={d.id}
           account={d}
           remaining={balances[d.id] ?? 0}
+          overdue={accountIsOverdue(state, d.id)}
+          priority={projection.focusId === d.id}
           onSave={(next) => upsertAccount(next)}
           onSetRemaining={(amount) => setCurrentBalance(d.id, amount)}
           onArchive={() => {
@@ -130,6 +134,9 @@ export function UtangView() {
             About {projection.months} month
             {projection.months === 1 ? "" : "s"} to clear listed revolving
             utang, with roughly {phpSmart(projection.interest)} interest.
+            {projection.focusId
+              ? ` Priority focus: ${revolving.find((d) => d.id === projection.focusId)?.name ?? "—"}.`
+              : ""}
           </p>
         </div>
       ) : null}
@@ -207,7 +214,10 @@ export function UtangView() {
                 particularId: null,
                 fromId: payload.fromId,
                 toId: payload.toId,
-                note: "Bayad utang",
+                note:
+                  payload.fromId == null
+                    ? "Paid from untracked source"
+                    : "Bayad utang",
               });
             }}
           />
@@ -224,6 +234,7 @@ function InstallmentSheet({
   balances,
   fromId,
   onFromId,
+  overdue,
   onPay,
   onUnpay,
   onSave,
@@ -235,6 +246,7 @@ function InstallmentSheet({
   balances: Record<string, number>;
   fromId: string;
   onFromId: (id: string) => void;
+  overdue: boolean;
   onPay: (rowId: string) => void;
   onUnpay: (rowId: string) => void;
   onSave: (account: Account) => void;
@@ -247,6 +259,7 @@ function InstallmentSheet({
   const total = schedule.length;
   const collapsible = total > 3;
   const [expanded, setExpanded] = useState(false);
+  const today = todayIso();
   const visible = useMemo(() => {
     if (!collapsible || expanded) return schedule;
     const keep = new Set(
@@ -259,20 +272,36 @@ function InstallmentSheet({
   const hidden = Math.max(0, total - visible.length);
 
   return (
-    <div>
+    <div
+      className={`rounded-2xl border p-4 ${
+        overdue ? "border-danger/35 bg-danger/5" : "border-paper-line bg-white/70"
+      }`}
+    >
       <div className="mb-2 flex items-end justify-between gap-3">
         <div className="min-w-0 flex-1">
-          <input
-            defaultValue={loan.name}
-            key={`${loan.id}-name`}
-            onBlur={(e) => {
-              const nextName = e.target.value.trim();
-              if (nextName && nextName !== loan.name) {
-                onSave({ ...loan, name: nextName });
-              }
-            }}
-            className="w-full bg-transparent font-display text-lg font-semibold uppercase tracking-wide outline-none"
-          />
+          <div className="flex flex-wrap items-center gap-2">
+            <input
+              defaultValue={loan.name}
+              key={`${loan.id}-name`}
+              onBlur={(e) => {
+                const nextName = e.target.value.trim();
+                if (nextName && nextName !== loan.name) {
+                  onSave({ ...loan, name: nextName });
+                }
+              }}
+              className="min-w-0 flex-1 bg-transparent font-display text-lg font-semibold uppercase tracking-wide outline-none"
+            />
+            {overdue ? (
+              <span className="rounded-full bg-danger/15 px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-danger">
+                Overdue
+              </span>
+            ) : null}
+            {loan.liabilityType === "housing" ? (
+              <span className="rounded-full border border-paper-line px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-ink-muted">
+                Housing
+              </span>
+            ) : null}
+          </div>
           <p className="mt-1 text-sm text-ink-muted">
             {paidCount}/{total} paid · remaining {phpSmart(remaining)}
           </p>
@@ -290,17 +319,24 @@ function InstallmentSheet({
         <label className="mb-2 block text-xs text-ink-muted">
           Mark paid from
           <select
-            value={fromId}
-            onChange={(e) => onFromId(e.target.value)}
+            value={fromId || payFrom[0]?.id || "__untracked__"}
+            onChange={(e) => onFromId(e.target.value === "__untracked__" ? "" : e.target.value)}
             className="mt-1 w-full max-w-xs rounded-lg border border-paper-line bg-white px-2 py-1.5 text-sm text-ink"
           >
-            <option value="">Payroll / none (schedule only)</option>
             {payFrom.map((a) => (
               <option key={a.id} value={a.id}>
                 {a.name} · {phpSmart(balances[a.id] ?? 0)}
               </option>
             ))}
+            <option value="__untracked__">
+              Payment came from an untracked source
+            </option>
           </select>
+          {!fromId ? (
+            <p className="mt-1 text-[11px] text-gold-deep">
+              Schedule marks paid; no cash wallet will decrease.
+            </p>
+          ) : null}
         </label>
       ) : null}
 
@@ -319,6 +355,7 @@ function InstallmentSheet({
             {visible.map((row) => {
               const isNext = next?.id === row.id;
               const isLastPaid = last?.id === row.id;
+              const rowOverdue = row.status !== "paid" && row.due < today;
               return (
                 <tr key={row.id}>
                   <td>{longDate(row.due)}</td>
@@ -326,6 +363,8 @@ function InstallmentSheet({
                   <td>
                     {row.status === "paid" ? (
                       <span className="paid">PAID</span>
+                    ) : rowOverdue ? (
+                      <span className="font-semibold text-danger">OVERDUE</span>
                     ) : (
                       ""
                     )}
@@ -380,36 +419,58 @@ function InstallmentSheet({
 function RevolvingCard({
   account,
   remaining,
+  overdue,
+  priority,
   onSave,
   onSetRemaining,
   onArchive,
 }: {
   account: Account;
   remaining: number;
+  overdue: boolean;
+  priority: boolean;
   onSave: (account: Account) => void;
   onSetRemaining: (amount: number) => void;
   onArchive: () => void;
 }) {
   return (
-    <div className="space-y-3 rounded-2xl border border-paper-line bg-white/70 p-4">
+    <div
+      className={`space-y-3 rounded-2xl border p-4 ${
+        overdue
+          ? "border-danger/35 bg-danger/5"
+          : "border-paper-line bg-white/70"
+      }`}
+    >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
-          <select
-            value={account.liabilityType ?? "other"}
-            onChange={(e) =>
-              onSave({
-                ...account,
-                liabilityType: e.target.value as LiabilityType,
-              })
-            }
-            className="rounded-md border border-paper-line bg-white px-2 py-1 text-[11px] font-semibold uppercase tracking-wide text-ink-muted"
-          >
-            {TYPES.map((t) => (
-              <option key={t.id} value={t.id}>
-                {t.label}
-              </option>
-            ))}
-          </select>
+          <div className="flex flex-wrap items-center gap-2">
+            <select
+              value={account.liabilityType ?? "other"}
+              onChange={(e) =>
+                onSave({
+                  ...account,
+                  liabilityType: e.target.value as LiabilityType,
+                })
+              }
+              className="rounded-md border border-paper-line bg-white px-2 py-1 text-[11px] font-semibold uppercase tracking-wide text-ink-muted"
+            >
+              {TYPES.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.label}
+                </option>
+              ))}
+            </select>
+            {overdue ? (
+              <span className="rounded-full bg-danger/15 px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-danger">
+                Overdue
+              </span>
+            ) : null}
+            {priority ? (
+              <span className="rounded-full bg-gold-deep/15 px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-gold-deep">
+                Priority
+              </span>
+            ) : null}
+          </div>
           <input
             defaultValue={account.name}
             key={`${account.id}-name`}
@@ -441,6 +502,9 @@ function RevolvingCard({
             }}
             className="mt-1 w-full rounded-lg border border-paper-line px-2 py-1.5 text-sm text-ink"
           />
+          <span className="mt-1 block text-[10px] text-ink-muted">
+            Posts a Balance adjustment (keeps payment history).
+          </span>
         </label>
         <label className="block text-xs text-ink-muted">
           Monthly rate %
@@ -522,21 +586,34 @@ function BayadForm({
   payFrom: Account[];
   balances: Record<string, number>;
   defaultFromId: string;
-  onPay: (payload: { toId: string; fromId: string; amount: number }) => void;
+  onPay: (payload: {
+    toId: string;
+    fromId: string | null;
+    amount: number;
+  }) => void;
   onDone: () => void;
   onBack: () => void;
 }) {
   const [toId, setToId] = useState(revolving[0]?.id ?? "");
-  const [fromId, setFromId] = useState(defaultFromId || payFrom[0]?.id || "");
+  const [fromId, setFromId] = useState(
+    defaultFromId || payFrom[0]?.id || "__untracked__",
+  );
   const [amount, setAmount] = useState("");
 
   function submit(event: FormEvent) {
     event.preventDefault();
     const value = Number(amount);
-    if (!toId || !fromId || !Number.isFinite(value) || value <= 0) return;
+    if (!toId || !Number.isFinite(value) || value <= 0) return;
+    const resolvedFrom =
+      fromId === "__untracked__" || !fromId ? null : fromId;
+    if (resolvedFrom == null && payFrom.length === 0) {
+      // ok — untracked only path
+    } else if (resolvedFrom == null && fromId !== "__untracked__") {
+      return;
+    }
     onPay({
       toId,
-      fromId,
+      fromId: resolvedFrom,
       amount: Math.round(value * 100) / 100,
     });
     onDone();
@@ -573,7 +650,15 @@ function BayadForm({
               {a.name}
             </option>
           ))}
+          <option value="__untracked__">
+            Payment came from an untracked source
+          </option>
         </select>
+        {fromId === "__untracked__" ? (
+          <p className="mt-1 text-[11px] text-gold-deep">
+            Debt drops; cash wallets stay the same.
+          </p>
+        ) : null}
       </label>
       <input
         inputMode="decimal"

@@ -138,6 +138,7 @@ export function AppShell() {
             onOpenMore={openMore}
             onOpenBudget={() => setTab("budget")}
             onOpenLedger={() => setTab("ledger")}
+            onOpenUtang={() => setTab("utang")}
           />
         ) : null}
         {tab === "ledger" ? (

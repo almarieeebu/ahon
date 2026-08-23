@@ -57,11 +57,30 @@ export function accountBalances(state: AppState): Record<string, number> {
     } else if (tx.kind === "transfer" && tx.fromId && tx.toId) {
       bal[tx.fromId] = (bal[tx.fromId] ?? 0) - tx.amount;
       bal[tx.toId] = (bal[tx.toId] ?? 0) + tx.amount;
-    } else if (tx.kind === "payment" && tx.fromId && tx.toId) {
-      bal[tx.fromId] = (bal[tx.fromId] ?? 0) - tx.amount;
+    } else if (tx.kind === "payment" && tx.toId) {
+      if (tx.fromId) {
+        bal[tx.fromId] = (bal[tx.fromId] ?? 0) - tx.amount;
+      }
       const to = lookup.get(tx.toId);
       if (to?.mode !== "installment") {
         bal[tx.toId] = Math.max(0, (bal[tx.toId] ?? 0) - tx.amount);
+      }
+    } else if (tx.kind === "adjustment") {
+      if (tx.fromId) {
+        const from = lookup.get(tx.fromId);
+        if (from?.kind === "liability") {
+          bal[tx.fromId] = (bal[tx.fromId] ?? 0) + tx.amount;
+        } else {
+          bal[tx.fromId] = (bal[tx.fromId] ?? 0) - tx.amount;
+        }
+      }
+      if (tx.toId) {
+        const to = lookup.get(tx.toId);
+        if (to?.kind === "liability") {
+          bal[tx.toId] = Math.max(0, (bal[tx.toId] ?? 0) - tx.amount);
+        } else {
+          bal[tx.toId] = (bal[tx.toId] ?? 0) + tx.amount;
+        }
       }
     }
   }
@@ -159,6 +178,8 @@ export function kindLabel(kind: Transaction["kind"]): string {
       return "Tigum / transfer";
     case "payment":
       return "Utang payment";
+    case "adjustment":
+      return "Balance adjustment";
   }
 }
 

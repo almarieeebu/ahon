@@ -39,6 +39,12 @@ export function Ledger({
   }
 
   function openEdit(tx: Transaction) {
+    if (tx.kind === "adjustment") {
+      window.alert(
+        "Balance adjustments are ledger history. To change a balance again, reconcile from Accounts / Tigum / Utang.",
+      );
+      return;
+    }
     setEditing(tx);
     setOpen(true);
   }
@@ -83,7 +89,9 @@ export function Ledger({
           <ul className="space-y-3 md:hidden">
             {rows.map((tx) => {
               const meta = rowMeta(state, tx);
-              const inflow = tx.kind === "income";
+              const inflow =
+                tx.kind === "income" ||
+                (tx.kind === "adjustment" && tx.toId && !tx.fromId);
               return (
                 <li
                   key={tx.id}
@@ -147,7 +155,9 @@ export function Ledger({
               <tbody>
                 {rows.map((tx) => {
                   const meta = rowMeta(state, tx);
-                  const inflow = tx.kind === "income";
+                  const inflow =
+                tx.kind === "income" ||
+                (tx.kind === "adjustment" && tx.toId && !tx.fromId);
                   return (
                     <tr key={tx.id}>
                       <td className="whitespace-nowrap">{tx.date}</td>
@@ -246,7 +256,11 @@ function rowMeta(
     tx.particular,
   );
   const bits = [
-    tx.fromId ? `from ${accountName(state, tx.fromId)}` : "",
+    tx.kind === "payment" && !tx.fromId
+      ? "from untracked source"
+      : tx.fromId
+        ? `from ${accountName(state, tx.fromId)}`
+        : "",
     tx.toId ? `to ${accountName(state, tx.toId)}` : "",
     tx.note,
   ].filter(Boolean);

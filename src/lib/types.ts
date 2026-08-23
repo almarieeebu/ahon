@@ -82,7 +82,7 @@ export interface BudgetLine {
   order: number;
 }
 
-export type TxKind = "income" | "expense" | "transfer" | "payment";
+export type TxKind = "income" | "expense" | "transfer" | "payment" | "adjustment";
 
 export interface Transaction {
   id: string;

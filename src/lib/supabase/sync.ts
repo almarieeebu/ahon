@@ -24,6 +24,20 @@ function num(v: unknown, fallback = 0): number {
   return Number.isFinite(n) ? n : fallback;
 }
 
+function normalizeTxKind(kind: unknown): Transaction["kind"] {
+  const k = String(kind ?? "");
+  if (
+    k === "income" ||
+    k === "expense" ||
+    k === "transfer" ||
+    k === "payment" ||
+    k === "adjustment"
+  ) {
+    return k;
+  }
+  return "expense";
+}
+
 function formatSbError(err: { message?: string; code?: string; details?: string } | null): string {
   if (!err) return "Unknown Supabase error";
   const parts = [err.message, err.code, err.details].filter(Boolean);
@@ -159,7 +173,7 @@ export async function loadCloudState(
   const transactions: Transaction[] = (txRes.data ?? []).map((row) => ({
     id: row.id,
     date: row.tx_date,
-    kind: row.kind,
+    kind: normalizeTxKind(row.kind),
     amount: num(row.amount),
     category: row.category ?? "",
     particular: row.particular ?? "",
