@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { Modal } from "@/components/Modal";
 import { RecordForm } from "@/components/RecordForm";
+import { SimpleLogSheet } from "@/components/SimpleLogSheet";
 import { useFinance } from "@/context/FinanceContext";
 import { php } from "@/lib/money";
 import { particularLabel } from "@/lib/refs";
@@ -18,6 +19,7 @@ export function Ledger({
 }) {
   const { state, month, removeTransaction } = useFinance();
   const [open, setOpen] = useState(false);
+  const [simpleOpen, setSimpleOpen] = useState(false);
   const [editing, setEditing] = useState<Transaction | null>(null);
 
   const rows = useMemo(
@@ -30,22 +32,30 @@ export function Ledger({
 
   function closeModal() {
     setOpen(false);
+    setSimpleOpen(false);
     setEditing(null);
   }
 
   function openAdd() {
     setEditing(null);
-    setOpen(true);
+    setOpen(false);
+    setSimpleOpen(true);
   }
 
   function openEdit(tx: Transaction) {
     if (tx.kind === "adjustment") {
       window.alert(
-        "Balance adjustments are ledger history. To change a balance again, reconcile from Accounts / Tigum / Utang.",
+        "Balance adjustments are log history. To change a balance again, reconcile from Accounts / Tigum / Utang.",
       );
       return;
     }
     setEditing(tx);
+    if (tx.kind === "income" || tx.kind === "expense") {
+      setOpen(false);
+      setSimpleOpen(true);
+      return;
+    }
+    setSimpleOpen(false);
     setOpen(true);
   }
 
@@ -61,10 +71,10 @@ export function Ledger({
       <div className="flex items-center justify-between gap-3">
         <div>
           <h2 className="font-display text-lg font-semibold">
-            This month’s ledger
+            This month’s log
           </h2>
           <p className="mt-0.5 text-sm text-ink-muted">
-            Actual cash movement · feeds Home overview.{" "}
+            What actually moved · feeds Home.{" "}
             {rows.length === 0
               ? "Nothing recorded yet."
               : `${rows.length} transaction${rows.length === 1 ? "" : "s"}.`}
@@ -72,16 +82,17 @@ export function Ledger({
         </div>
         <button
           type="button"
+          data-testid="log-add"
           onClick={openAdd}
           className="shrink-0 rounded-full bg-ink px-4 py-2.5 text-sm font-semibold text-paper"
         >
-          Add
+          Log money
         </button>
       </div>
 
       {rows.length === 0 ? (
         <p className="sheet-empty">
-          Tap Add to log payday, housing, tigum, or a bayad.
+          Tap Log money to add payday, a bill, or gastos.
         </p>
       ) : (
         <>
@@ -112,6 +123,7 @@ export function Ledger({
                       </p>
                     </div>
                     <p
+                      data-testid="log-row-amount"
                       className={`shrink-0 font-display text-lg font-semibold ${inflow ? "text-ok" : "text-ink"}`}
                     >
                       {inflow ? "+" : "−"}
@@ -121,6 +133,7 @@ export function Ledger({
                   <div className="mt-3 flex gap-2 border-t border-paper-line pt-3">
                     <button
                       type="button"
+                      data-testid="log-edit"
                       onClick={() => openEdit(tx)}
                       className="flex-1 rounded-full border border-ink/15 bg-paper px-3 py-2 text-sm font-semibold text-ink"
                     >
@@ -176,6 +189,7 @@ export function Ledger({
                       </td>
                       <td>{kindLabel(tx.kind)}</td>
                       <td
+                        data-testid="log-row-amount"
                         className={`num font-display font-semibold ${inflow ? "text-ok" : ""}`}
                       >
                         {inflow ? "+" : "−"}
@@ -185,6 +199,7 @@ export function Ledger({
                         <div className="flex justify-end gap-2">
                           <button
                             type="button"
+                            data-testid="log-edit"
                             className="rounded-full border border-ink/15 px-3 py-1 text-xs font-semibold"
                             onClick={() => openEdit(tx)}
                           >
@@ -207,6 +222,15 @@ export function Ledger({
           </div>
         </>
       )}
+
+      <SimpleLogSheet
+        key={editing?.id ?? "new"}
+        open={simpleOpen}
+        initial={editing}
+        onClose={closeModal}
+        onManageParticulars={onManageParticulars}
+        onManageCategories={onManageCategories}
+      />
 
       <Modal
         open={open}

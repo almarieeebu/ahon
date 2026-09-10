@@ -52,6 +52,9 @@ export function emptyState(): AppState {
     version: 5,
     settings: {
       monthlyIncome: 0,
+      emergencyReserve: 0,
+      paydayDays: [],
+      setupComplete: false,
       openedOn: todayIso(),
     },
     accounts: [],
@@ -115,6 +118,14 @@ export function presetState(): AppState {
       tone: "utility",
     },
     {
+      id: "cat-mobile",
+      name: "Mobile / load",
+      planned: 0,
+      dueDay: 15,
+      kind: "expense",
+      tone: "utility",
+    },
+    {
       id: "cat-food",
       name: "Food / groceries",
       planned: 0,
@@ -129,6 +140,22 @@ export function presetState(): AppState {
       dueDay: 0,
       kind: "expense",
       tone: "default",
+    },
+    {
+      id: "cat-health",
+      name: "Health / medicine",
+      planned: 0,
+      dueDay: 0,
+      kind: "expense",
+      tone: "personal",
+    },
+    {
+      id: "cat-school-family",
+      name: "School / family support",
+      planned: 0,
+      dueDay: 0,
+      kind: "expense",
+      tone: "personal",
     },
     {
       id: "cat-debt",
@@ -148,7 +175,7 @@ export function presetState(): AppState {
     },
     {
       id: "cat-personal",
-      name: "Personal",
+      name: "Personal / household",
       planned: 0,
       dueDay: 0,
       kind: "expense",
@@ -156,7 +183,7 @@ export function presetState(): AppState {
     },
     {
       id: "cat-others",
-      name: "Others",
+      name: "Miscellaneous / unexpected",
       planned: 0,
       dueDay: 0,
       kind: "expense",
@@ -170,11 +197,23 @@ export function presetState(): AppState {
     { id: "p-electric", name: "ELECTRICITY", categoryId: "cat-electric" },
     { id: "p-water", name: "WATER", categoryId: "cat-water" },
     { id: "p-internet", name: "INTERNET", categoryId: "cat-internet" },
+    { id: "p-mobile", name: "MOBILE / LOAD", categoryId: "cat-mobile" },
     { id: "p-groceries", name: "GROCERIES", categoryId: "cat-food" },
     { id: "p-transport", name: "TRANSPORT", categoryId: "cat-transport" },
+    { id: "p-health", name: "HEALTH / MEDICINE", categoryId: "cat-health" },
+    {
+      id: "p-school-family",
+      name: "SCHOOL / FAMILY SUPPORT",
+      categoryId: "cat-school-family",
+    },
     { id: "p-debt", name: "DEBT PAYMENT", categoryId: "cat-debt" },
     { id: "p-tigum", name: "TIGUM", categoryId: "cat-savings" },
     { id: "p-personal", name: "PERSONAL", categoryId: "cat-personal" },
+    {
+      id: "p-misc",
+      name: "MISCELLANEOUS",
+      categoryId: "cat-others",
+    },
   ];
 
   const accounts: Account[] = [
@@ -206,6 +245,9 @@ export function presetState(): AppState {
     version: 5,
     settings: {
       monthlyIncome: 0,
+      emergencyReserve: 0,
+      paydayDays: [],
+      setupComplete: false,
       openedOn: todayIso(),
     },
     accounts,

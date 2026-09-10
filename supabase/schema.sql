@@ -9,6 +9,9 @@ create extension if not exists "pgcrypto";
 create table if not exists public.profiles (
   id uuid primary key references auth.users (id) on delete cascade,
   monthly_income numeric(14, 2) not null default 0,
+  emergency_reserve numeric(14, 2) not null default 0,
+  payday_days int[] not null default '{}',
+  setup_complete boolean not null default false,
   opened_on date not null default current_date,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
@@ -192,6 +195,15 @@ create policy "transactions_own" on public.transactions
 notify pgrst, 'reload schema';
 
 -- ---------- migrate existing DBs: allow balance adjustments ----------
+alter table public.profiles add column if not exists emergency_reserve numeric(14, 2) not null default 0;
+alter table public.profiles add column if not exists payday_days int[] not null default '{}';
+alter table public.profiles add column if not exists setup_complete boolean;
+update public.profiles set setup_complete = true where setup_complete is null;
+alter table public.profiles alter column setup_complete set default false;
+alter table public.profiles alter column setup_complete set not null;
+
 alter table public.transactions drop constraint if exists transactions_kind_check;
 alter table public.transactions add constraint transactions_kind_check
   check (kind in ('income', 'expense', 'transfer', 'payment', 'adjustment'));
+
+notify pgrst, 'reload schema';

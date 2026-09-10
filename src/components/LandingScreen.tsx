@@ -68,12 +68,12 @@ export function LandingScreen({
             {APP_TAGLINE}
           </h1>
           <p className="mt-3 max-w-md text-base text-night-muted sm:text-lg">
-            Your household money notebook — cash, tigum, utang, budget, and
-            ledger.
+            Your household money notebook — cash, tigum, utang, and a simple log.
           </p>
           <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:flex-wrap">
             <button
               type="button"
+              data-testid="landing-open"
               onClick={onGetStarted}
               className="rounded-full bg-gold px-6 py-3.5 text-base font-semibold text-ink"
             >
@@ -94,6 +94,7 @@ export function LandingScreen({
           {cloudEnabled ? (
             <button
               type="button"
+              data-testid="landing-local"
               onClick={onContinueLocal}
               className="mt-4 text-sm font-semibold text-night-muted underline-offset-2 hover:underline"
             >

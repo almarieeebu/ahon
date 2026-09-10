@@ -41,6 +41,7 @@ export function RecordForm({
   const cash = byKind(state, "cash");
   const savings = byKind(state, "savings");
   const debts = byKind(state, "liability");
+  const defaultCashId = cash[0]?.id ?? "";
   // Expenses: pay from cash wallets only (not tigum pots / utang)
   const spendFrom = cash;
   const payFrom = [...cash, ...savings];
@@ -61,7 +62,7 @@ export function RecordForm({
       "",
   );
   const [fromId, setFromId] = useState(
-    initialFromId(initial, cash[0]?.id ?? ""),
+    initialFromId(initial, defaultCashId),
   );
   const [toId, setToId] = useState(
     initial?.toId ?? savings[0]?.id ?? debts[0]?.id ?? "",
@@ -92,10 +93,12 @@ export function RecordForm({
         })?.id ??
         "",
     );
-    setFromId(initialFromId(initial, cash[0]?.id ?? ""));
+    setFromId(initialFromId(initial, defaultCashId));
     setToId(initial.toId ?? "");
     setNote(initial.note);
-  }, [initial, state.particulars, cash]);
+    // Reload only when a different row is opened. `cash` is a new array each
+    // render and must not reset the fields the person is editing.
+  }, [initial, defaultCashId, state.particulars]);
 
   useEffect(() => {
     if (!particularId) return;
@@ -117,8 +120,16 @@ export function RecordForm({
     return state.categories.filter((c) => (c.kind ?? "expense") === "expense");
   }, [kind, state.categories]);
 
-  const resolvedCategory =
-    categoryOptions.some((c) => c.id === category)
+  const selectedParticular = state.particulars.find(
+    (particular) => particular.id === particularId,
+  );
+  const linkedCategoryId = selectedParticular?.categoryId ?? "";
+  const linkedCategory = categoryOptions.find(
+    (item) => item.id === linkedCategoryId,
+  );
+  const resolvedCategory = linkedCategory
+    ? linkedCategory.id
+    : categoryOptions.some((item) => item.id === category)
       ? category
       : (categoryOptions[0]?.id ?? "");
 
@@ -289,6 +300,7 @@ export function RecordForm({
             className="mt-1.5 w-full rounded-xl border border-paper-line bg-white px-4 py-3 font-display text-2xl outline-none"
             placeholder="0"
             required={!nextInstallment}
+            data-testid="record-amount"
           />
         </label>
       ) : null}
@@ -296,7 +308,7 @@ export function RecordForm({
       {showTags ? (
         <label className="block">
           <span className="text-xs font-semibold uppercase tracking-wide text-ink-muted">
-            Particular
+            What was it for?
           </span>
           <select
             value={particularId}
@@ -318,14 +330,14 @@ export function RecordForm({
                 onClick={onManageParticulars}
                 className="font-semibold text-ink underline-offset-2 hover:underline"
               >
-                Manage in Menu → Particulars
+                Manage names in Menu
               </button>
             ) : null}
           </p>
         </label>
       ) : null}
 
-      {showTags ? (
+      {showTags && !linkedCategory ? (
         <label className="block">
           <span className="text-xs font-semibold uppercase tracking-wide text-ink-muted">
             Category
@@ -339,8 +351,8 @@ export function RecordForm({
             {categoryOptions.length === 0 ? (
               <option value="">
                 {kind === "income"
-                  ? "Add an income category in Menu → Budget setup"
-                  : "Add an expense category in Menu → Budget setup"}
+                  ? "Add an income group in Menu → Money plan"
+                  : "Add an expense group in Menu → Money plan"}
               </option>
             ) : (
               categoryOptions.map((c) => (
@@ -357,11 +369,17 @@ export function RecordForm({
                 onClick={onManageCategories}
                 className="font-semibold text-ink underline-offset-2 hover:underline"
               >
-                Manage in Menu → Budget setup
+                Manage groups in Menu
               </button>
             </p>
           ) : null}
         </label>
+      ) : null}
+
+      {showTags && linkedCategory ? (
+        <p className="rounded-xl border border-paper-line bg-paper-soft/40 px-3 py-2.5 text-sm text-ink-muted">
+          Category: <span className="font-semibold text-ink">{linkedCategory.name}</span>
+        </p>
       ) : null}
 
       {kind === "expense" ? (
@@ -489,6 +507,7 @@ export function RecordForm({
 
       <button
         type="submit"
+        data-testid="record-save"
         className="w-full rounded-full bg-ink px-5 py-3 text-sm font-semibold text-paper"
       >
         {saved

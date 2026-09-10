@@ -12,38 +12,24 @@ const STEPS: {
 }[] = [
   {
     n: 1,
-    title: "Categories",
-    body: "Income & expense buckets in Budget setup (Salary, Food, Debt…). Particulars need these first.",
+    title: "Usual month",
+    body: "Enter take-home pay, cash now, and the bills you always pay. Skip any amount you do not know yet.",
     focus: "budget",
-    cta: "Budget setup",
+    cta: "Money plan",
   },
   {
     n: 2,
-    title: "Particulars",
-    body: "Line names for budget & ledger (e.g. WATER, MILK), each linked to a category.",
-    focus: "particulars",
-    cta: "Add particulars",
+    title: "Log when money moves",
+    body: "Payday, a bill, or gastos — amount and what it was for. That is enough.",
+    focus: "ledger",
+    cta: "Open Log",
   },
   {
     n: 3,
-    title: "Accounts",
-    body: "Add Cash on hand. Then tigum pots or utang as needed.",
+    title: "Later, if you want",
+    body: "Tigum pots, extra wallets, and extra names live in Menu. You do not need them to start.",
     focus: "accounts",
-    cta: "Add accounts",
-  },
-  {
-    n: 4,
-    title: "Period budget",
-    body: "Plan income & expenses for a date range on the Budget tab.",
-    focus: "budget-tab",
-    cta: "Open Budget",
-  },
-  {
-    n: 5,
-    title: "Ledger",
-    body: "Record actual payday, expenses, transfers, and bayad.",
-    focus: "ledger",
-    cta: "Open Ledger",
+    cta: "Open Menu",
   },
 ];
 
@@ -54,7 +40,6 @@ export function isFreshBooks(state: {
   budgetPeriods: unknown[];
   transactions: unknown[];
 }): boolean {
-  // Presets still count as "set up" — only truly empty books show Getting started
   return (
     state.accounts.length === 0 &&
     state.categories.length === 0 &&
@@ -94,13 +79,13 @@ export function GettingStarted({
       <p className="text-xs font-semibold uppercase tracking-[0.14em] text-gold-deep">
         Getting started
       </p>
-      <h2 className="mt-2 font-display text-xl font-semibold tracking-tight">
-        Set up your books
+      <h2 className="font-display text-xl font-semibold tracking-tight">
+        Start with your usual month
       </h2>
       <p className="mt-2 text-sm text-ink-muted">
-        Empty start — follow these steps.{" "}
+        You do not need to learn accounts or categories first.{" "}
         {syncMode === "cloud"
-          ? "Everything syncs to Supabase after you save."
+          ? "Everything syncs after you save."
           : "Data stays on this device until you sign in."}
       </p>
 

@@ -16,8 +16,8 @@ import type { TabId } from "@/lib/types";
 
 const PRIMARY_TABS: { id: TabId; label: string }[] = [
   { id: "home", label: "Home" },
-  { id: "ledger", label: "Ledger" },
-  { id: "budget", label: "Budget" },
+  { id: "ledger", label: "Log" },
+  { id: "budget", label: "Plan" },
 ];
 
 const MENU_PAGES: { id: TabId; label: string; hint: string }[] = [
@@ -28,18 +28,18 @@ const MENU_PAGES: { id: TabId; label: string; hint: string }[] = [
 const MENU_SETUP: { id: MoreFocusTab; label: string; hint: string }[] = [
   {
     id: "budget",
-    label: "Budget setup",
-    hint: "Income & expense categories",
+    label: "Money plan",
+    hint: "Paydays, bills & spending groups",
   },
   {
     id: "particulars",
-    label: "Particulars",
-    hint: "Names for Budget & Ledger lines",
+    label: "Bill & income names",
+    hint: "Optional reusable names for your records",
   },
   {
     id: "accounts",
-    label: "Accounts",
-    hint: "Cash, wallets, banks",
+    label: "Cash & wallets",
+    hint: "Cash, GCash, Maya and banks",
   },
   {
     id: "profile",
@@ -49,7 +49,7 @@ const MENU_SETUP: { id: MoreFocusTab; label: string; hint: string }[] = [
 ];
 
 export function AppShell() {
-  const { ready, savedAt, month, setMonth } = useFinance();
+  const { ready, savedAt, month, setMonth, state } = useFinance();
   const [tab, setTab] = useState<TabId>("home");
   const [moreFocus, setMoreFocus] = useState<MoreFocusTab | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -169,6 +169,7 @@ export function AppShell() {
                 className={`flex w-full flex-col items-center py-3.5 text-base font-semibold ${
                   tab === item.id ? "text-gold-deep" : "text-ink-muted"
                 }`}
+                data-testid={`tab-${item.id}`}
               >
                 {item.label}
               </button>
@@ -289,11 +290,13 @@ export function AppShell() {
         onClose={() => setHelpOpen(false)}
       />
       <ManualModal open={manualOpen} onClose={() => setManualOpen(false)} />
-      <WelcomeTour
-        key={tourSession}
-        startOpen={tourSession > 0 ? true : undefined}
-        onNavigate={goTab}
-      />
+      {state.settings.setupComplete ? (
+        <WelcomeTour
+          key={tourSession}
+          startOpen={tourSession > 0 ? true : undefined}
+          onNavigate={goTab}
+        />
+      ) : null}
     </div>
   );
 }
@@ -320,25 +323,25 @@ function MenuIcon() {
 function heading(tab: TabId, moreFocus: MoreFocusTab | null): string {
   switch (tab) {
     case "home":
-      return "Your books";
+      return "Your money";
     case "ledger":
-      return "Ledger";
+      return "Log";
     case "save":
       return "Tigum";
     case "utang":
       return "Utang";
     case "budget":
-      return "Period budget";
+      return "Money plan";
     case "more":
       switch (moreFocus) {
         case "particulars":
-          return "Particulars";
+          return "Bill & income names";
         case "accounts":
-          return "Accounts";
+          return "Cash & wallets";
         case "profile":
           return "Profile";
         case "budget":
-          return "Budget setup";
+          return "Money plan";
         default:
           return "Setup";
       }

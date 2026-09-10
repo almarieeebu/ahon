@@ -3,7 +3,6 @@
 import { useEffect, useState } from "react";
 import {
   TOUR_STEPS,
-  hasSeenTour,
   markTourSeen,
   type TourStep,
 } from "@/lib/help";
@@ -16,9 +15,7 @@ type Props = {
 };
 
 export function WelcomeTour({ startOpen, onNavigate }: Props) {
-  const [open, setOpen] = useState(() =>
-    startOpen === true ? true : !hasSeenTour(),
-  );
+  const [open, setOpen] = useState(() => startOpen === true);
   const [index, setIndex] = useState(0);
 
   useEffect(() => {

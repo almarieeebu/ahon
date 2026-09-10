@@ -8,13 +8,13 @@ import { monthKey as currentMonthKey, phpSmart, uid } from "@/lib/money";
 import {
   availableBudgetMonths,
   monthChipLabel,
-  periodLabel,
   summarizeMonthBudget,
 } from "@/lib/periodBudget";
+import { monthHasPlan, previousMonthWithPlan } from "@/lib/simpleLog";
 import type { BudgetPeriod } from "@/lib/types";
 
 export function BudgetTabView() {
-  const { state, upsertBudgetPeriod, addBudgetLine } = useFinance();
+  const { state, upsertBudgetPeriod, addBudgetLine, copyMonthPlan } = useFinance();
   const months = useMemo(
     () => availableBudgetMonths(state.budgetPeriods, state.budgetLines),
     [state.budgetPeriods, state.budgetLines],
@@ -30,6 +30,8 @@ export function BudgetTabView() {
     () => summarizeMonthBudget(state, selected),
     [state, selected],
   );
+  const previous = previousMonthWithPlan(state, selected);
+  const canCopy = Boolean(previous) && !monthHasPlan(state, selected);
 
   const [addOpen, setAddOpen] = useState(false);
   const [start, setStart] = useState("");
@@ -63,13 +65,13 @@ export function BudgetTabView() {
             onClick={() => setAddOpen(true)}
             className="rounded-full bg-ink px-3.5 py-2 text-sm font-semibold text-paper lg:hidden"
           >
-            Add period
+            Add dates
           </button>
         </div>
         <ul className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-2 lg:mx-0 lg:flex-col lg:overflow-visible lg:px-0 lg:pb-0">
           {months.length === 0 ? (
             <li className="rounded-xl border border-dashed border-paper-line px-4 py-3 text-sm text-ink-muted">
-              No periods yet — add one to start planning.
+              No plan this month yet.
             </li>
           ) : (
             months.map((key) => {
@@ -105,16 +107,34 @@ export function BudgetTabView() {
           onClick={() => setAddOpen(true)}
           className="mt-3 hidden w-full rounded-full bg-ink px-4 py-2.5 text-sm font-semibold text-paper lg:block"
         >
-          Add period
+          Add dates
         </button>
       </aside>
 
       <div className="min-w-0 flex-1 space-y-4">
+        {canCopy && previous ? (
+          <div className="rounded-2xl border border-paper-line bg-white/80 p-4">
+            <p className="text-sm font-semibold text-ink">
+              No plan for {monthChipLabel(selected)} yet
+            </p>
+            <p className="mt-1 text-sm text-ink-muted">
+              Copy {monthChipLabel(previous)} instead of entering dates.
+            </p>
+            <button
+              type="button"
+              onClick={() => copyMonthPlan(previous, selected)}
+              className="mt-3 rounded-full bg-ink px-4 py-2 text-sm font-semibold text-paper"
+            >
+              Use last month’s plan again
+            </button>
+          </div>
+        ) : null}
+
         <div className="grid grid-cols-2 gap-3">
-          <MiniStat label="Budget in" value={phpSmart(summary.income)} />
-          <MiniStat label="Budget out" value={phpSmart(summary.expense)} />
-          <MiniStat label="Actual in" value={phpSmart(summary.actualIn)} />
-          <MiniStat label="Actual out" value={phpSmart(summary.actualOut)} />
+          <MiniStat label="Planned in" value={phpSmart(summary.income)} />
+          <MiniStat label="Planned out" value={phpSmart(summary.expense)} />
+          <MiniStat label="Logged in" value={phpSmart(summary.actualIn)} />
+          <MiniStat label="Logged out" value={phpSmart(summary.actualOut)} />
         </div>
 
         <PeriodBudgetView
@@ -124,11 +144,10 @@ export function BudgetTabView() {
           showAddPeriod={false}
         />
 
-        <Modal open={addOpen} title="Add a pay period" onClose={closeAdd}>
+        <Modal open={addOpen} title="Add dates" onClose={closeAdd}>
           <form onSubmit={addPeriod} className="space-y-4">
             <p className="text-sm text-ink-muted">
-              Example: Oct 25 → Oct 31 becomes{" "}
-              {start && end ? periodLabel(start, end) : "OCT 25 - OCT 31"}.
+              Optional. Most people copy last month instead.
             </p>
             <div className="grid grid-cols-2 gap-3">
               <label className="block text-sm text-ink-muted">
@@ -156,7 +175,7 @@ export function BudgetTabView() {
               type="submit"
               className="w-full rounded-full bg-ink px-4 py-3 text-base font-semibold text-paper"
             >
-              Add period
+              Add dates
             </button>
           </form>
         </Modal>

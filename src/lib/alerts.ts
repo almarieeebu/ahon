@@ -1,4 +1,5 @@
 import { monthAffordability } from "./affordability";
+import { moneyNeededBeforePayday } from "./cashPlan";
 import { todayIso } from "./money";
 import { projectPayoff } from "./payoff";
 import { money2, summarizeMonthOverview } from "./periodBudget";
@@ -171,6 +172,7 @@ export function buildFinanceAlerts(
   const balances = accountBalances(state);
   const cash = sumKind(state, balances, "cash");
   const afford = monthAffordability(state, monthKey, cash);
+  const beforePayday = moneyNeededBeforePayday(state, cash, today);
   const overview = summarizeMonthOverview(state, monthKey);
   const alerts: FinanceAlert[] = [];
   const overdue = overdueFlags(state, today);
@@ -185,9 +187,9 @@ export function buildFinanceAlerts(
       kind: cc ? "overdue_credit_card" : "overdue_installment",
       severity: "critical",
       title: cc
-        ? `Overdue credit card — ${flag.label}`
-        : `Overdue payment — ${flag.label}`,
-      detail: `Was due ${flag.due}. Pay as soon as you can.`,
+        ? `Credit card past due — ${flag.label}`
+        : `Payment past due — ${flag.label}`,
+      detail: `Was due ${flag.due}. Pay when you can.`,
       amount: flag.amount,
       action: "utang",
     });
@@ -241,7 +243,7 @@ export function buildFinanceAlerts(
       id: `bill:${line.id}`,
       kind: "upcoming_bill",
       severity: days <= 3 ? "warn" : "info",
-      title: `Upcoming bill — ${line.particular || "Budget line"}`,
+      title: `Bill coming up — ${line.particular || "Planned bill"}`,
       detail:
         days === 0
           ? "Due today."
@@ -320,8 +322,8 @@ export function buildFinanceAlerts(
       id: "negative-cash-flow",
       kind: "negative_cash_flow",
       severity: "critical",
-      title: "Negative monthly cash flow",
-      detail: `Obligations exceed income by ₱${money2(Math.abs(afford.gap)).toFixed(2)} this month.`,
+      title: "Need more this month",
+      detail: `Bills and utang are ${money2(Math.abs(afford.gap)).toFixed(2)} more than income this month.`,
       amount: Math.abs(afford.gap),
       action: "budget",
     });
@@ -330,8 +332,8 @@ export function buildFinanceAlerts(
       id: "negative-budget-flow",
       kind: "negative_cash_flow",
       severity: "critical",
-      title: "Negative monthly cash flow",
-      detail: "Budget out is higher than budget in for this month.",
+      title: "Need more this month",
+      detail: "The plan spends more than it brings in this month.",
       amount: money2(overview.expense - overview.income),
       action: "budget",
     });
@@ -342,8 +344,8 @@ export function buildFinanceAlerts(
       id: "cash-shortage",
       kind: "cash_shortage",
       severity: "critical",
-      title: "Projected cash shortage",
-      detail: `After this month’s income and obligations, cash would be short by ₱${money2(Math.abs(afford.cashAfter)).toFixed(2)}.`,
+      title: "Cash may run short",
+      detail: `After this month’s income and bills, cash would be short by ₱${money2(Math.abs(afford.cashAfter)).toFixed(2)}.`,
       amount: Math.abs(afford.cashAfter),
       action: "ledger",
     });
@@ -358,9 +360,15 @@ export function buildFinanceAlerts(
     .filter((a) => a.balance > 0.01);
 
   const mins = revolving.reduce((s, a) => s + (a.plannedPayment || 0), 0);
-  const surplus = money2(Math.max(0, afford.gap, afford.cashAfter));
+  // Current cash is a starting balance, not this month's free spending room.
+  // Do not suggest using it for debt until this month's plan both leaves a
+  // surplus and repairs any projected cash shortfall.
+  const monthlySurplus = Math.max(0, Math.min(afford.gap, afford.cashAfter));
+  // The next-payday check is stricter: never use cash already needed for
+  // upcoming bills, debt minimums, or the reserve as an extra payment.
+  const surplus = money2(Math.min(monthlySurplus, beforePayday.safeToUse));
   if (surplus > 0 && revolving.length > 0 && afford.verdict !== "no") {
-    const focus = projectPayoff(revolving, Math.max(mins, surplus)).focusId;
+    const focus = projectPayoff(revolving, mins + surplus).focusId;
     const focusAcc = revolving.find((a) => a.id === focus);
     alerts.push({
       id: "extra-cash",
@@ -392,8 +400,8 @@ export function buildFinanceAlerts(
         id: `priority:${focusAcc.id}`,
         kind: "debt_priority",
         severity: "warn",
-        title: `Priority debt — ${focusAcc.name}`,
-        detail: "When you can pay extra, attack this balance first (highest rate).",
+        title: `If you can pay extra — ${focusAcc.name}`,
+        detail: "Highest interest first, when there is room.",
         amount: focusAcc.balance,
         action: "utang",
       });

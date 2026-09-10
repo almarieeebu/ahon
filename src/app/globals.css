@@ -1,5 +1,19 @@
 @import "tailwindcss";
 
+.setup-input {
+  width: 100%;
+  border: 1px solid var(--paper-line);
+  border-radius: 0.75rem;
+  background: white;
+  padding: 0.625rem 0.75rem;
+  color: var(--ink);
+}
+
+.setup-input:focus {
+  outline: 2px solid color-mix(in srgb, var(--gold-deep) 45%, transparent);
+  outline-offset: 2px;
+}
+
 :root {
   --paper: #f8f7f4;
   --paper-soft: #efece5;

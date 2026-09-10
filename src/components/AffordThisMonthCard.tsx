@@ -9,8 +9,10 @@ import { phpSmart } from "@/lib/money";
 
 export function AffordThisMonthCard({
   snap,
+  onLog,
 }: {
   snap: MonthAffordability;
+  onLog?: () => void;
 }) {
   const emptyPlan = snap.income <= 0 && snap.obligations <= 0;
   const deficit = snap.gap < 0;
@@ -30,10 +32,20 @@ export function AffordThisMonthCard({
       </p>
 
       {emptyPlan ? (
-        <p className="mt-3 text-sm text-ink-muted">
-          Set monthly take-home in Menu → Budget setup, or add Budget in/out —
-          then Ahon can show if you cover this month.
-        </p>
+        <div className="mt-3 space-y-3">
+          <p className="text-sm text-ink-muted">
+            Add usual bills in Quick start or log money — then Ahon can show if you cover this month.
+          </p>
+          {onLog ? (
+            <button
+              type="button"
+              onClick={onLog}
+              className="text-sm font-semibold text-ink underline-offset-2 hover:underline"
+            >
+              Log money →
+            </button>
+          ) : null}
+        </div>
       ) : (
         <>
           <dl className="mt-4 space-y-2 text-sm">
