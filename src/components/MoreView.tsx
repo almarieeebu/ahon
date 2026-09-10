@@ -14,9 +14,9 @@ type MoreTab = "accounts" | "particulars" | "budget" | "profile";
 export type MoreFocusTab = MoreTab;
 
 const MORE_TABS: { id: MoreTab; label: string }[] = [
-  { id: "budget", label: "Budget setup" },
-  { id: "particulars", label: "Particulars" },
-  { id: "accounts", label: "Accounts" },
+  { id: "budget", label: "Money plan" },
+  { id: "particulars", label: "Bill & income names" },
+  { id: "accounts", label: "Cash & wallets" },
   { id: "profile", label: "Profile" },
 ];
 
@@ -87,6 +87,19 @@ export function MoreView({
     setAddOpen(false);
   }
 
+  function savePaydayDays(value: string) {
+    const paydayDays = [...new Set(
+      value
+        .split(",")
+        .map((part) => Number(part.trim()))
+        .filter((day) => Number.isInteger(day) && day >= 1 && day <= 31),
+    )].sort((a, b) => a - b);
+    updateState((s) => ({
+      ...s,
+      settings: { ...s.settings, paydayDays },
+    }));
+  }
+
   return (
     <section className="space-y-6">
       <div className="flex flex-wrap gap-2">
@@ -112,9 +125,9 @@ export function MoreView({
         <div className="space-y-4">
           <div className="flex items-start justify-between gap-3">
             <div>
-              <h2 className="font-display text-lg font-semibold">Particulars</h2>
+              <h2 className="font-display text-lg font-semibold">Bill & income names</h2>
               <p className="mt-1 text-sm text-ink-muted">
-                Budget & Ledger line names. Category comes from Budget setup.
+                Optional reusable names for your Log and plan. Each name belongs to a spending group.
               </p>
             </div>
             <button
@@ -127,7 +140,7 @@ export function MoreView({
           </div>
 
           {state.particulars.length === 0 ? (
-            <p className="sheet-empty">No particulars yet.</p>
+            <p className="sheet-empty">No names yet. Ahon includes common ones such as GROCERIES and ELECTRICITY.</p>
           ) : (
             <ul className="space-y-2">
               {state.particulars.map((p) => {
@@ -188,7 +201,7 @@ export function MoreView({
 
           <Modal
             open={addOpen}
-            title="Add particular"
+            title="Add a bill or income name"
             onClose={() => setAddOpen(false)}
           >
             <form onSubmit={addParticular} className="space-y-4">
@@ -203,7 +216,7 @@ export function MoreView({
                 />
               </label>
               <label className="block text-xs text-ink-muted">
-                Category (from Budget setup)
+                Spending group
                 <select
                   value={categoryId}
                   onChange={(e) => setCategoryId(e.target.value)}
@@ -211,7 +224,7 @@ export function MoreView({
                   required={state.categories.length > 0}
                 >
                   {state.categories.length === 0 ? (
-                    <option value="">Add categories in Budget setup first</option>
+                    <option value="">Add a spending group in Money plan first</option>
                   ) : (
                     state.categories.map((c) => (
                       <option key={c.id} value={c.id}>
@@ -235,10 +248,9 @@ export function MoreView({
       {tab === "budget" ? (
         <div className="space-y-6">
           <div>
-            <h2 className="font-display text-lg font-semibold">Budget setup</h2>
+            <h2 className="font-display text-lg font-semibold">Money plan</h2>
             <p className="mt-1 text-sm text-ink-muted">
-              Income & expense categories for Ledger and Particulars. Period
-              planning lives on the Budget tab.
+              Your regular pay, bills, cash cushion, and spending groups. Detailed period planning lives on Plan.
             </p>
           </div>
           <label className="block text-sm">
@@ -262,6 +274,51 @@ export function MoreView({
               className="mt-1 w-full rounded-xl border border-paper-line bg-white px-3 py-2"
             />
           </label>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label className="block text-sm">
+              <span className="text-xs font-semibold uppercase tracking-wide text-ink-muted">
+                Paydays (days of month)
+              </span>
+              <input
+                type="text"
+                inputMode="numeric"
+                defaultValue={state.settings.paydayDays.join(", ")}
+                key={`paydays-${state.settings.paydayDays.join("-")}`}
+                onBlur={(e) => savePaydayDays(e.target.value)}
+                placeholder="e.g. 15, 30"
+                className="mt-1 w-full rounded-xl border border-paper-line bg-white px-3 py-2"
+              />
+              <span className="mt-1 block text-xs text-ink-muted">
+                Separate regular payday dates with commas.
+              </span>
+            </label>
+            <label className="block text-sm">
+              <span className="text-xs font-semibold uppercase tracking-wide text-ink-muted">
+                Cash reserve to keep
+              </span>
+              <input
+                type="number"
+                min={0}
+                value={state.settings.emergencyReserve}
+                onChange={(e) => {
+                  const value = Number(e.target.value);
+                  updateState((s) => ({
+                    ...s,
+                    settings: {
+                      ...s.settings,
+                      emergencyReserve: Number.isFinite(value)
+                        ? Math.max(0, value)
+                        : 0,
+                    },
+                  }));
+                }}
+                className="mt-1 w-full rounded-xl border border-paper-line bg-white px-3 py-2"
+              />
+              <span className="mt-1 block text-xs text-ink-muted">
+                Protected in Home&apos;s before-payday check; it does not move money.
+              </span>
+            </label>
+          </div>
           <BudgetPanel />
         </div>
       ) : null}

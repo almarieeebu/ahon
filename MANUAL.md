@@ -2,7 +2,7 @@
 
 **Live app:** https://ahon-kohl.vercel.app  
 
-Ahon = *to rise* — a private money notebook for cash, tigum, utang, budget, and real spending.
+Ahon = *to rise* — a private money notebook for cash, tigum, utang, a simple month plan, and real spending.
 
 ---
 
@@ -10,33 +10,31 @@ Ahon = *to rise* — a private money notebook for cash, tigum, utang, budget, an
 
 1. Open https://ahon-kohl.vercel.app  
 2. **Sign up** with your email (or Sign in if you already have an account).  
-3. Follow the **welcome tour** (Next / Skip).  
-4. Use **Help** (top right) anytime for a tip on the current page.  
-5. Full guide anytime: **More → Profile → Open manual**.
+3. Answer three screens: pay and cash, usual bills, optional utang and a small cash cushion.  
+4. When money moves, tap **Log money**.  
+5. Use **Help** (top right) anytime. Full guide: **Menu → Profile → Open manual**.
 
 Add the page to your phone Home Screen for an app-like icon.
 
 ---
 
-## Setup order (important)
-
-1. **More → Budget setup** — categories (Salary, Food, Debt…)  
-2. **More → Particulars** — names you use every month (WATER, MILK), each linked to a category  
-3. **More → Accounts** — Cash on hand first  
-4. **Budget** tab — create a period and plan amounts  
-5. **Ledger** — record what actually happened (payday, gastos, bayad)
-
----
-
 ## Everyday
+
+You only need two jobs:
+
+1. **Once:** what does this month usually look like?  
+2. **When money moves:** log it.
 
 | Action | Where |
 | --- | --- |
-| Payday | Ledger → Income |
-| Gastos | Ledger → Expense |
-| Save to tigum | Ledger transfer, or Tigum tab |
-| Bayad utang | Utang tab or Ledger → Payment |
-| See overview | Home |
+| Payday | Home or Log → Money in |
+| Gastos | Log money → amount + Food / Bills / Load / Transport / Other |
+| Planned bill | Home → **I paid this** |
+| Save to tigum | Menu → Tigum, or More details on Log |
+| Bayad utang | Menu → Utang, or the Utang chip |
+| Am I okay? | Home |
+
+A weekly grocery total is enough. You do not need every jeepney fare.
 
 ---
 
@@ -50,6 +48,6 @@ Add the page to your phone Home Screen for an app-like icon.
 
 ## Tips
 
-- Keep particular names consistent.  
-- Export backup: **More → Profile → Export backup**.  
-- Replay the tour: **More → Profile → Replay tour**.
+- Copy last month’s plan when a new month starts (Plan tab).  
+- Export backup: **Menu → Profile → Export backup**.  
+- Replay the tour: **Menu → Profile → Replay tour**.

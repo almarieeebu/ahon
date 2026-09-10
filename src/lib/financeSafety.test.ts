@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import { describe, it } from "vitest";
 import { monthAffordability } from "@/lib/affordability";
-import { emptyAccount, emptyState } from "@/lib/defaults";
+import { buildFinanceAlerts } from "@/lib/alerts";
+import { moneyNeededBeforePayday } from "@/lib/cashPlan";
+import { emptyAccount, emptyState, presetState } from "@/lib/defaults";
 import { accountBalances } from "@/lib/selectors";
 import type { AppState, Transaction } from "@/lib/types";
 
@@ -110,5 +112,66 @@ describe("monthly survival", () => {
     assert.equal(snap.verdict, "no");
     assert.equal(snap.survivalMode, true);
     assert.ok(snap.gap < 0);
+  });
+
+  it("sets aside due bills, debt, and a reserve before payday", () => {
+    const state = baseState();
+    state.settings.paydayDays = [15, 30];
+    state.settings.emergencyReserve = 1000;
+    state.budgetPeriods = [
+      { id: "august", start: "2026-08-01", end: "2026-08-31" },
+    ];
+    state.budgetLines = [
+      {
+        id: "electricity",
+        periodId: "august",
+        due: "2026-08-10",
+        particular: "Electricity",
+        particularId: null,
+        income: 0,
+        expense: 2000,
+        actual: null,
+        status: "unpaid",
+        order: 0,
+      },
+    ];
+
+    const plan = moneyNeededBeforePayday(state, 10000, "2026-08-01");
+
+    assert.equal(plan.end, "2026-08-15");
+    assert.equal(plan.bills, 2000);
+    assert.equal(plan.debtMinimums, 5000);
+    assert.equal(plan.reserve, 1000);
+    assert.equal(plan.totalNeeded, 8000);
+    assert.equal(plan.safeToUse, 2000);
+  });
+
+  it("only offers debt extra that current cash can spare before payday", () => {
+    const state = baseState();
+    const alerts = buildFinanceAlerts(state, {
+      monthKey: "2026-08",
+      today: "2026-08-01",
+    });
+    const extra = alerts.find((alert) => alert.kind === "extra_cash_debt");
+
+    // Though this month has a ₱35,000 surplus, ₱5,000 is due in the next
+    // 14 days. Only the remaining ₱5,000 cash can be optional debt extra.
+    assert.equal(extra?.amount, 5000);
+  });
+});
+
+describe("first-run starter data", () => {
+  it("includes common household names without sample amounts", () => {
+    const state = presetState();
+
+    assert.equal(state.settings.setupComplete, false);
+    assert.ok(state.accounts.some((account) => account.id === "cash-on-hand"));
+    assert.ok(state.accounts.some((account) => account.id === "tigum-emergency"));
+    assert.ok(state.categories.some((category) => category.id === "cat-rent"));
+    assert.ok(state.categories.some((category) => category.id === "cat-health"));
+    assert.ok(state.categories.some((category) => category.id === "cat-others"));
+    assert.ok(state.particulars.some((particular) => particular.id === "p-groceries"));
+    assert.ok(state.particulars.some((particular) => particular.id === "p-misc"));
+    assert.ok(state.categories.every((category) => category.planned === 0));
   });
 });

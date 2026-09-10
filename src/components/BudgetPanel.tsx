@@ -44,7 +44,7 @@ export function BudgetPanel({ showActuals = false }: { showActuals?: boolean }) 
     <div className="space-y-8">
       <CategorySection
         title="Income categories"
-        blurb="Used when you log payday / income in Ledger."
+        blurb="Used when you log payday / income."
         kind="income"
         categories={incomeCats}
         showActuals={showActuals}
@@ -56,7 +56,7 @@ export function BudgetPanel({ showActuals = false }: { showActuals?: boolean }) 
       />
       <CategorySection
         title="Expense categories"
-        blurb="Used when you log expenses, tigum moves, and bayad in Ledger."
+        blurb="Used when you log expenses, tigum moves, and bayad."
         kind="expense"
         categories={expenseCats}
         showActuals={showActuals}

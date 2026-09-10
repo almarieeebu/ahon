@@ -15,6 +15,14 @@ import { presetState } from "@/lib/defaults";
 import { monthKey, todayIso, uid } from "@/lib/money";
 import { emptyBudgetLine } from "@/lib/periodBudget";
 import { resolveParticularRef } from "@/lib/refs";
+import {
+  applySimpleLog,
+  applySimpleUpdate,
+  applyUpdateTransaction,
+  copyBudgetMonth,
+  payBudgetLine,
+  type SimpleLogDraft,
+} from "@/lib/simpleLog";
 import { scheduleRemaining } from "@/lib/schedule";
 import { accountBalances } from "@/lib/selectors";
 import { loadState, saveState } from "@/lib/storage";
@@ -45,6 +53,10 @@ type FinanceValue = {
   setMonth: (key: string) => void;
   balances: Record<string, number>;
   addTransaction: (tx: Omit<Transaction, "id">) => void;
+  logSimple: (draft: SimpleLogDraft) => void;
+  updateSimple: (id: string, draft: SimpleLogDraft) => void;
+  payPlanLine: (lineId: string) => void;
+  copyMonthPlan: (fromKey: string, toKey: string) => void;
   updateTransaction: (tx: Transaction) => void;
   removeTransaction: (id: string) => void;
   upsertAccount: (account: Account) => void;
@@ -193,20 +205,24 @@ export function FinanceProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
+  const logSimple = useCallback((draft: SimpleLogDraft) => {
+    setState((prev) => applySimpleLog(prev, draft) ?? prev);
+  }, []);
+
+  const updateSimple = useCallback((id: string, draft: SimpleLogDraft) => {
+    setState((prev) => applySimpleUpdate(prev, id, draft) ?? prev);
+  }, []);
+
+  const payPlanLine = useCallback((lineId: string) => {
+    setState((prev) => payBudgetLine(prev, lineId) ?? prev);
+  }, []);
+
+  const copyMonthPlan = useCallback((fromKey: string, toKey: string) => {
+    setState((prev) => copyBudgetMonth(prev, fromKey, toKey) ?? prev);
+  }, []);
+
   const updateTransaction = useCallback((tx: Transaction) => {
-    setState((prev) => {
-      const ref = resolveParticularRef(
-        prev.particulars,
-        tx.particularId,
-        tx.particular,
-      );
-      return {
-        ...prev,
-        transactions: prev.transactions.map((t) =>
-          t.id === tx.id ? { ...tx, ...ref } : t,
-        ),
-      };
-    });
+    setState((prev) => applyUpdateTransaction(prev, tx) ?? prev);
   }, []);
 
   const removeTransaction = useCallback((id: string) => {
@@ -536,7 +552,7 @@ export function FinanceProvider({ children }: { children: ReactNode }) {
   const resetAll = useCallback(() => {
     if (
       !window.confirm(
-        "Reset to common starter books? Categories, particulars, and Cash will be restored. Ledger & budget periods will clear.",
+        "Reset to common starter books? Categories, names, and Cash will be restored. Log and plans will clear.",
       )
     ) {
       return;
@@ -557,6 +573,10 @@ export function FinanceProvider({ children }: { children: ReactNode }) {
       setMonth,
       balances,
       addTransaction,
+      logSimple,
+      updateSimple,
+      payPlanLine,
+      copyMonthPlan,
       updateTransaction,
       removeTransaction,
       upsertAccount,
@@ -587,6 +607,10 @@ export function FinanceProvider({ children }: { children: ReactNode }) {
       month,
       balances,
       addTransaction,
+      logSimple,
+      updateSimple,
+      payPlanLine,
+      copyMonthPlan,
       updateTransaction,
       removeTransaction,
       upsertAccount,

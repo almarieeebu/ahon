@@ -22,6 +22,9 @@ type LegacyState = {
   version?: number;
   settings?: {
     monthlyIncome?: number;
+    emergencyReserve?: number;
+    paydayDays?: number[];
+    setupComplete?: boolean;
     housingPayment?: number;
     startingCash?: number;
     openedOn?: string;
@@ -156,6 +159,15 @@ function normalizeTransaction(
   };
 }
 
+function normalizePaydayDays(value: unknown): number[] {
+  if (!Array.isArray(value)) return [];
+  return [...new Set(
+    value
+      .map(Number)
+      .filter((day) => Number.isInteger(day) && day >= 1 && day <= 31),
+  )].sort((a, b) => a - b);
+}
+
 /**
  * Normalize a backup / older JSON into AppState.
  * Does not inject sample/seed data — missing lists stay empty.
@@ -184,6 +196,14 @@ export function migrateState(raw: unknown): AppState | null {
       version: 5,
       settings: {
         monthlyIncome: v.settings?.monthlyIncome ?? 0,
+        emergencyReserve: v.settings?.emergencyReserve ?? 0,
+        paydayDays: normalizePaydayDays(v.settings?.paydayDays),
+        // Books saved before the guided setup existed are already in use;
+        // don't interrupt their owner with the new-user flow.
+        setupComplete:
+          typeof v.settings?.setupComplete === "boolean"
+            ? v.settings.setupComplete
+            : (v.version ?? 0) >= 5,
         openedOn: v.settings?.openedOn ?? blank.settings.openedOn,
       },
       accounts,
@@ -207,6 +227,12 @@ export function migrateState(raw: unknown): AppState | null {
     ...blank,
     settings: {
       monthlyIncome: v.settings?.monthlyIncome ?? 0,
+      emergencyReserve: v.settings?.emergencyReserve ?? 0,
+      paydayDays: normalizePaydayDays(v.settings?.paydayDays),
+      setupComplete:
+        typeof v.settings?.setupComplete === "boolean"
+          ? v.settings.setupComplete
+          : true,
       openedOn: v.settings?.openedOn ?? todayIso(),
     },
   };

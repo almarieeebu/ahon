@@ -97,8 +97,8 @@ function actionLabel(action: AlertAction): string {
     case "utang":
       return "Open Utang";
     case "budget":
-      return "Open Budget";
+      return "Open Plan";
     case "ledger":
-      return "Open Ledger";
+      return "Open Log";
   }
 }

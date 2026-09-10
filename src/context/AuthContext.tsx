@@ -101,7 +101,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         stripAuthParams();
       }
 
-      const { data } = await supabase!.auth.getSession();
+      const { data } = await Promise.race([
+        supabase!.auth.getSession(),
+        new Promise<{ data: { session: null } }>((resolve) =>
+          setTimeout(() => resolve({ data: { session: null } }), 8000),
+        ),
+      ]);
       if (!mounted) return;
       setSession(data.session);
       setUser(data.session?.user ?? null);

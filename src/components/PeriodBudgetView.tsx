@@ -180,8 +180,8 @@ export function PeriodBudgetView({
       {monthKey != null ? " for this month" : year != null ? ` for ${year}` : ""}{" "}
       yet.
       {showAddPeriod
-        ? " Add a pay cycle below."
-        : " Use Add a pay period above."}
+        ? " Copy last month from Plan, or add dates below."
+        : " Use Add dates above, or copy last month."}
     </p>
   );
 
@@ -192,8 +192,7 @@ export function PeriodBudgetView({
           <div>
             <h2 className="font-display text-lg font-semibold">{title}</h2>
             <p className="mt-1 text-sm text-ink-muted">
-              Plan by pay period. Home overview uses budget here + actual from
-              Ledger.
+              Plan vs real spending. Dates stay here if you need them later.
               {monthKey != null
                 ? ` · ${monthKey}`
                 : year != null
@@ -233,8 +232,7 @@ export function PeriodBudgetView({
       >
         <form onSubmit={saveCreateParticular} className="space-y-4">
           <p className="text-sm text-ink-muted">
-            Saves to Menu → Particulars so you can reuse it in Ledger and
-            Budget.
+            Saves to Menu so you can reuse it in Log and Plan.
           </p>
           <label className="block text-xs font-semibold uppercase tracking-wide text-ink-muted">
             Particular

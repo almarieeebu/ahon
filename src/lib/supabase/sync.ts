@@ -199,6 +199,16 @@ export async function loadCloudState(
       version: 5,
       settings: {
         monthlyIncome: num(profile?.monthly_income, 0),
+        emergencyReserve: num(profile?.emergency_reserve, 0),
+        paydayDays: Array.isArray(profile?.payday_days)
+          ? profile.payday_days
+              .map(Number)
+              .filter((day: number) => Number.isInteger(day) && day >= 1 && day <= 31)
+              .sort((a: number, b: number) => a - b)
+          : [],
+        // Existing cloud profiles predate this field and should not be put
+        // back into first-run setup after an upgrade.
+        setupComplete: profile?.setup_complete !== false,
         openedOn: profile?.opened_on ?? blank.settings.openedOn,
       },
       accounts,
@@ -240,6 +250,9 @@ export async function saveCloudState(
   const { error: profileError } = await supabase.from("profiles").upsert({
     id: userId,
     monthly_income: state.settings.monthlyIncome,
+    emergency_reserve: state.settings.emergencyReserve,
+    payday_days: state.settings.paydayDays,
+    setup_complete: state.settings.setupComplete,
     opened_on: state.settings.openedOn,
     updated_at: new Date().toISOString(),
   });

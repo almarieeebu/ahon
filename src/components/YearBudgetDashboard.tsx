@@ -102,7 +102,7 @@ export function OverviewDashboard({
             By particular
           </h3>
           <p className="text-xs text-ink-muted">
-            Budget from Budget tab · Actual from Ledger
+            Planned amounts from Plan · Actual from Log
           </p>
         </div>
 
@@ -121,7 +121,7 @@ export function OverviewDashboard({
                   <th className="num">Actual in</th>
                   <th className="num">Actual out</th>
                   <th className="num">Budget lines</th>
-                  <th className="num">Ledger</th>
+                  <th className="num">Log</th>
                 </tr>
               </thead>
               <tbody>

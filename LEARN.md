@@ -57,11 +57,10 @@ Translator: `src/lib/supabase/sync.ts`
 
 ## 4. Workflow sa app (product flow)
 
-1. **More** — Categories (Budget setup), Particulars, Accounts  
-2. **Budget** — period plan (budget lines)  
-3. **Ledger** — actual income / expense / transfer / payment  
-4. **Home** — year/month overview  
-5. **Tigum / Utang** — savings & debts  
+1. **Home** — am I okay, then log money  
+2. **Log** — actual income / expense / transfer / payment  
+3. **Plan** — month guide (copy last month)  
+4. **Menu** — Tigum, Utang, extra setup when needed  
 
 ---
 

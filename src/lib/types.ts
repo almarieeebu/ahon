@@ -103,6 +103,12 @@ export interface Transaction {
 
 export interface Settings {
   monthlyIncome: number;
+  /** Minimum cash to leave untouched when assessing what is safe to use. */
+  emergencyReserve: number;
+  /** Regular paydays as days of the month, e.g. [15, 30]. */
+  paydayDays: number[];
+  /** False only while a new user is completing the guided first setup. */
+  setupComplete: boolean;
   openedOn: string;
 }
 
