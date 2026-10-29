@@ -14,7 +14,7 @@ type MoreTab = "accounts" | "particulars" | "budget" | "profile";
 export type MoreFocusTab = MoreTab;
 
 const MORE_TABS: { id: MoreTab; label: string }[] = [
-  { id: "budget", label: "Money plan" },
+  { id: "budget", label: "Income & recurring bills" },
   { id: "particulars", label: "Bill & income names" },
   { id: "accounts", label: "Cash & wallets" },
   { id: "profile", label: "Profile" },
@@ -130,7 +130,7 @@ export function MoreView({
             <div>
               <h2 className="font-display text-lg font-semibold">Bill & income names</h2>
               <p className="mt-1 text-sm text-ink-muted">
-                Optional reusable names for your Log and plan. Each name belongs to a spending group.
+                Optional reusable names for Activity and Budget. Each name belongs to a spending group.
               </p>
             </div>
             <button
@@ -227,7 +227,7 @@ export function MoreView({
                   required={state.categories.length > 0}
                 >
                   {state.categories.length === 0 ? (
-                    <option value="">Add a spending group in Money plan first</option>
+                    <option value="">Add a spending group in Income & recurring bills first</option>
                   ) : (
                     state.categories.map((c) => (
                       <option key={c.id} value={c.id}>
@@ -251,9 +251,9 @@ export function MoreView({
       {tab === "budget" ? (
         <div className="space-y-6">
           <div>
-            <h2 className="font-display text-lg font-semibold">Money plan</h2>
+            <h2 className="font-display text-lg font-semibold">Income &amp; recurring bills</h2>
             <p className="mt-1 text-sm text-ink-muted">
-              Your regular pay, bills, cash cushion, and spending groups. Detailed period planning lives on Plan.
+              Your regular pay, bills, cash cushion, and spending groups. Monthly spending limits live on the Budget tab.
             </p>
           </div>
           <label className="block text-sm">

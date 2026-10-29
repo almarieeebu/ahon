@@ -1,10 +1,11 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { AddLoanSheet } from "@/components/AddLoanSheet";
 import { AffordThisMonthCard } from "@/components/AffordThisMonthCard";
 import { CriticalAlertsPanel } from "@/components/CriticalAlertsPanel";
 import { MoneyNeededCard } from "@/components/MoneyNeededCard";
-import { QuickStartWizard } from "@/components/QuickStartWizard";
+import { QuickStartWizard, loadSetupDraft } from "@/components/QuickStartWizard";
 import { SimpleLogSheet } from "@/components/SimpleLogSheet";
 import {
   GettingStarted,
@@ -35,7 +36,12 @@ import {
   unpaidPlanLines,
   type DailyPrompt,
 } from "@/lib/simpleLog";
-import { byKind, netWorth, sumKind } from "@/lib/selectors";
+import {
+  byKind,
+  incompleteBalanceAccounts,
+  netWorth,
+  sumKind,
+} from "@/lib/selectors";
 import type { BudgetLine } from "@/lib/types";
 
 type OverviewTab = "yearly" | "monthly";
@@ -59,8 +65,15 @@ export function HomeView({
   onOpenLedger,
   onOpenUtang,
 }: Props) {
-  const { state, balances, month, syncMode, cloudError, payPlanLine } =
-    useFinance();
+  const {
+    state,
+    balances,
+    month,
+    syncMode,
+    cloudError,
+    payPlanLine,
+    updateState,
+  } = useFinance();
   const fresh = isFreshBooks(state);
   const cash = sumKind(state, balances, "cash");
   const tigum = sumKind(state, balances, "savings");
@@ -108,6 +121,10 @@ export function HomeView({
   const [logPrefill, setLogPrefill] = useState<LogPrefill | undefined>();
   const [logTitle, setLogTitle] = useState<string | undefined>();
   const [detailsOpen, setDetailsOpen] = useState(false);
+  const [addLoanOpen, setAddLoanOpen] = useState(false);
+  const [wizardOpen, setWizardOpen] = useState(false);
+  // Read when the first-use card renders; a skipped setup leaves a draft.
+  const [hasDraft, setHasDraft] = useState(() => loadSetupDraft() != null);
   // The app shell only renders on the client, so storage is readable here.
   const [dismissed, setDismissed] = useState<string[]>(() =>
     loadPromptDismissals(today),
@@ -153,10 +170,21 @@ export function HomeView({
     setDismissed(dismissPrompt(id, today));
   }
 
-  if (!state.settings.setupComplete) {
+  const firstUse = !state.settings.setupComplete;
+  const hasRecords =
+    state.transactions.length > 0 || byKind(state, "liability").length > 0;
+  const incomplete = incompleteBalanceAccounts(state);
+
+  if (wizardOpen) {
     return (
       <QuickStartWizard
+        onSkip={() => {
+          setHasDraft(true);
+          setWizardOpen(false);
+        }}
         onFinished={({ offerLog }) => {
+          setHasDraft(false);
+          setWizardOpen(false);
           // Opens once Home renders; no category is preselected.
           if (offerLog) openAddExpense();
         }}
@@ -164,7 +192,7 @@ export function HomeView({
     );
   }
 
-  if (fresh) {
+  if (fresh && !firstUse) {
     return (
       <section className="space-y-6">
         <GettingStarted
@@ -178,250 +206,291 @@ export function HomeView({
 
   return (
     <section className="space-y-6">
-      <p className="text-xs text-ink-muted">
-        Sync:{" "}
-        <span className="font-semibold text-ink">
-          {syncMode === "cloud" ? "Cloud (Supabase)" : "This device only"}
-        </span>
-        {cloudError ? (
-          <span className="ml-2 text-danger" role="alert">
-            · {cloudError}
-          </span>
-        ) : null}
-      </p>
+      {firstUse ? (
+        <FirstUseCard
+          hasDraft={hasDraft}
+          cashIncomplete={incomplete.length > 0}
+          onAddExpense={openAddExpense}
+          onAddLoan={() => setAddLoanOpen(true)}
+          onSetBudget={onOpenBudget}
+          onSetup={() => setWizardOpen(true)}
+          onDismiss={() =>
+            updateState((current) => ({
+              ...current,
+              settings: { ...current.settings, setupComplete: true },
+            }))
+          }
+        />
+      ) : null}
 
-      <div
-        className={`rounded-2xl border p-5 ${
-          status.tone === "need"
-            ? "border-danger/35 bg-danger/5"
-            : status.tone === "tight"
-              ? "border-gold-deep/35 bg-gold-deep/5"
-              : "border-ok/30 bg-ok/5"
-        }`}
-      >
-        <p className="text-xs font-semibold uppercase tracking-[0.14em] text-ink-muted">
-          This month
+      {!firstUse || hasRecords ? (
+        <>
+        <p className="text-xs text-ink-muted">
+          Sync:{" "}
+          <span className="font-semibold text-ink">
+            {syncMode === "cloud" ? "Cloud (Supabase)" : "This device only"}
+          </span>
+          {cloudError ? (
+            <span className="ml-2 text-danger" role="alert">
+              · {cloudError}
+            </span>
+          ) : null}
         </p>
-        <p
-          className={`mt-2 font-display text-xl font-semibold ${
+
+        <div
+          className={`rounded-2xl border p-5 ${
             status.tone === "need"
-              ? "text-danger"
+              ? "border-danger/35 bg-danger/5"
               : status.tone === "tight"
-                ? "text-gold-deep"
-                : "text-ink"
+                ? "border-gold-deep/35 bg-gold-deep/5"
+                : "border-ok/30 bg-ok/5"
           }`}
         >
-          {status.sentence}
-        </p>
-        <p className="mt-1 text-sm text-ink-muted">
-          Cash left {phpSmart(status.cashLeft)}
-        </p>
-        <div className="mt-4 grid grid-cols-2 gap-2">
-          <button
-            type="button"
-            data-testid="home-add-expense"
-            onClick={openAddExpense}
-            className="rounded-full bg-ink px-5 py-3 text-sm font-semibold text-paper"
+          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-ink-muted">
+            This month
+          </p>
+          <p
+            className={`mt-2 font-display text-xl font-semibold ${
+              status.tone === "need"
+                ? "text-danger"
+                : status.tone === "tight"
+                  ? "text-gold-deep"
+                  : "text-ink"
+            }`}
           >
-            Add expense
-          </button>
-          <button
-            type="button"
-            data-testid="home-log-money"
-            onClick={() => openLog()}
-            className="rounded-full border border-ink/20 bg-white px-5 py-3 text-sm font-semibold text-ink"
-          >
-            Log money
-          </button>
+            {status.sentence}
+          </p>
+          <p className="mt-1 text-sm text-ink-muted">
+            Cash left {phpSmart(status.cashLeft)}
+            {incomplete.length > 0 ? (
+              <span className="ml-1 font-semibold text-gold-deep">
+                · incomplete: starting balance not entered for{" "}
+                {incomplete.map((a) => a.name).join(", ")}
+              </span>
+            ) : null}
+          </p>
+          <div className="mt-4 grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              data-testid="home-add-expense"
+              onClick={openAddExpense}
+              className="rounded-full bg-ink px-5 py-3 text-sm font-semibold text-paper"
+            >
+              Add expense
+            </button>
+            <button
+              type="button"
+              data-testid="home-log-money"
+              onClick={() => openLog()}
+              className="rounded-full border border-ink/20 bg-white px-5 py-3 text-sm font-semibold text-ink"
+            >
+              Log money
+            </button>
+            <button
+              type="button"
+              data-testid="home-add-loan"
+              onClick={() => setAddLoanOpen(true)}
+              className="col-span-2 rounded-full border border-ink/20 bg-white px-5 py-3 text-sm font-semibold text-ink"
+            >
+              Add loan
+            </button>
+          </div>
         </div>
-      </div>
 
-      {prompt ? (
-        <TodayPromptCard
-          prompt={prompt}
-          onLog={openLog}
-          onPay={(line) => payPlanLine(line.id)}
-          onSkip={() => skipPrompt(prompt.id)}
+        {prompt ? (
+          <TodayPromptCard
+            prompt={prompt}
+            onLog={openLog}
+            onPay={(line) => payPlanLine(line.id)}
+            onSkip={() => skipPrompt(prompt.id)}
+          />
+        ) : null}
+
+        {showRitual ? (
+          <WeeklyRitualCard
+            onDismiss={() => {
+              markRitualSeen();
+              setShowRitual(false);
+            }}
+          />
+        ) : null}
+
+        {payLines.length > 0 ? (
+          <PayPlanList
+            lines={payLines}
+            onPay={(line) => payPlanLine(line.id)}
+          />
+        ) : null}
+
+        <AffordThisMonthCard snap={afford} onLog={() => openLog()} />
+        <MoneyNeededCard
+          plan={beforePayday}
+          onOpenSetup={() => onOpenMore("budget")}
+          onPayBill={(lineId) => payPlanLine(lineId)}
         />
-      ) : null}
+        <CriticalAlertsPanel alerts={alerts} onAction={onAlertAction} />
 
-      {showRitual ? (
-        <WeeklyRitualCard
-          onDismiss={() => {
-            markRitualSeen();
-            setShowRitual(false);
-          }}
-        />
-      ) : null}
+        <button
+          type="button"
+          onClick={() => setDetailsOpen((value) => !value)}
+          className="w-full rounded-2xl border border-paper-line bg-white/70 px-4 py-3 text-left text-sm font-semibold text-ink"
+        >
+          {detailsOpen ? "Hide more on this month" : "More on this month"}
+        </button>
 
-      {payLines.length > 0 ? (
-        <PayPlanList
-          lines={payLines}
-          onPay={(line) => payPlanLine(line.id)}
-        />
-      ) : null}
-
-      <AffordThisMonthCard snap={afford} onLog={() => openLog()} />
-      <MoneyNeededCard
-        plan={beforePayday}
-        onOpenSetup={() => onOpenMore("budget")}
-        onPayBill={(lineId) => payPlanLine(lineId)}
-      />
-      <CriticalAlertsPanel alerts={alerts} onAction={onAlertAction} />
-
-      <button
-        type="button"
-        onClick={() => setDetailsOpen((value) => !value)}
-        className="w-full rounded-2xl border border-paper-line bg-white/70 px-4 py-3 text-left text-sm font-semibold text-ink"
-      >
-        {detailsOpen ? "Hide more on this month" : "More on this month"}
-      </button>
-
-      {detailsOpen ? (
-        <div className="space-y-6">
-          <div className="rounded-2xl border border-paper-line bg-white/70 p-5">
-            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-gold-deep">
-              Net position
-            </p>
-            <dl className="mt-4 space-y-2 text-sm">
-              <div className="flex justify-between gap-3">
-                <dt className="text-ink-muted">Cash</dt>
-                <dd className={`font-semibold ${cash < 0 ? "text-danger" : "text-ink"}`}>
-                  {phpSmart(cash)}
-                </dd>
-              </div>
-              <div className="flex justify-between gap-3">
-                <dt className="text-ink-muted">Tigum</dt>
-                <dd className="font-semibold text-ink">{phpSmart(tigum)}</dd>
-              </div>
-              <div className="flex justify-between gap-3">
-                <dt className="text-ink-muted">Utang</dt>
-                <dd className={`font-semibold ${utang > 0 ? "text-danger" : "text-ink"}`}>
-                  {phpSmart(utang)}
-                </dd>
-              </div>
-              <div className="flex justify-between gap-3 border-t border-paper-line pt-2">
-                <dt className="font-medium text-ink">Net position</dt>
-                <dd
-                  className={`font-display text-xl font-semibold ${worth < 0 ? "text-danger" : "text-ink"}`}
-                >
-                  {phpSmart(worth)}
-                </dd>
-              </div>
-            </dl>
-            <p className="mt-2 text-sm text-ink-muted">
-              Cash + tigum minus remaining utang.
-            </p>
-          </div>
-
-          <div className="space-y-4">
-            <div className="flex flex-wrap gap-2">
-              {(
-                [
-                  { id: "yearly", label: "Yearly" },
-                  { id: "monthly", label: "Monthly" },
-                ] as const
-              ).map((item) => (
-                <button
-                  key={item.id}
-                  type="button"
-                  onClick={() => setTab(item.id)}
-                  className={`rounded-full px-4 py-1.5 text-sm font-semibold ${
-                    tab === item.id
-                      ? "bg-ink text-paper"
-                      : "border border-paper-line bg-white/70 text-ink-muted"
-                  }`}
-                >
-                  {item.label}
-                </button>
-              ))}
-            </div>
-
-            {tab === "yearly" ? (
-              <div className="space-y-3">
-                {years.length > 0 ? (
-                  <div className="flex flex-wrap gap-2">
-                    {years.map((y) => {
-                      const snap = summarizeYearBudget(state, y);
-                      const active = y === year;
-                      return (
-                        <button
-                          key={y}
-                          type="button"
-                          onClick={() => setYear(y)}
-                          className={`rounded-full border px-3 py-1.5 text-sm font-semibold ${
-                            active
-                              ? "border-ink bg-ink text-paper"
-                              : "border-paper-line bg-white/70 text-ink"
-                          }`}
-                        >
-                          {y}
-                          <span
-                            className={`ml-2 text-[11px] font-medium ${active ? "text-paper/70" : "text-ink-muted"}`}
-                          >
-                            {phpSmart(snap.income)} / {phpSmart(snap.expense)}
-                          </span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                ) : null}
-                <OverviewDashboard scope="year" year={year} />
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {months.length > 0 ? (
-                  <div className="flex flex-wrap gap-2">
-                    {months.map((key) => {
-                      const snap = summarizeMonthOverview(state, key);
-                      const active = key === selectedMonth;
-                      return (
-                        <button
-                          key={key}
-                          type="button"
-                          onClick={() => setSelectedMonth(key)}
-                          className={`rounded-full border px-3 py-1.5 text-sm font-semibold ${
-                            active
-                              ? "border-ink bg-ink text-paper"
-                              : "border-paper-line bg-white/70 text-ink"
-                          }`}
-                        >
-                          {monthChipLabel(key)}
-                          <span
-                            className={`ml-2 text-[11px] font-medium ${active ? "text-paper/70" : "text-ink-muted"}`}
-                          >
-                            {phpSmart(snap.income)} / {phpSmart(snap.expense)}
-                          </span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                ) : null}
-                <OverviewDashboard scope="month" monthKey={selectedMonth} />
-              </div>
-            )}
-          </div>
-
-          {banks.length > 0 ? (
-            <div>
-              <h2 className="font-display text-lg font-semibold">Accounts</h2>
-              <ul className="mt-3 grid gap-2 sm:grid-cols-2">
-                {banks.map((a) => (
-                  <li
-                    key={a.id}
-                    className="flex items-baseline justify-between rounded-xl border border-paper-line bg-white/60 px-3 py-2 text-sm"
+        {detailsOpen ? (
+          <div className="space-y-6">
+            <div className="rounded-2xl border border-paper-line bg-white/70 p-5">
+              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-gold-deep">
+                Net position
+              </p>
+              <dl className="mt-4 space-y-2 text-sm">
+                <div className="flex justify-between gap-3">
+                  <dt className="text-ink-muted">Cash</dt>
+                  <dd className={`font-semibold ${cash < 0 ? "text-danger" : "text-ink"}`}>
+                    {phpSmart(cash)}
+                  </dd>
+                </div>
+                <div className="flex justify-between gap-3">
+                  <dt className="text-ink-muted">Tigum</dt>
+                  <dd className="font-semibold text-ink">{phpSmart(tigum)}</dd>
+                </div>
+                <div className="flex justify-between gap-3">
+                  <dt className="text-ink-muted">Utang</dt>
+                  <dd className={`font-semibold ${utang > 0 ? "text-danger" : "text-ink"}`}>
+                    {phpSmart(utang)}
+                  </dd>
+                </div>
+                <div className="flex justify-between gap-3 border-t border-paper-line pt-2">
+                  <dt className="font-medium text-ink">Net position</dt>
+                  <dd
+                    className={`font-display text-xl font-semibold ${worth < 0 ? "text-danger" : "text-ink"}`}
                   >
-                    <span>{a.name}</span>
-                    <span className="font-display font-semibold">
-                      {phpSmart(balances[a.id] ?? 0)}
-                    </span>
-                  </li>
-                ))}
-              </ul>
+                    {phpSmart(worth)}
+                  </dd>
+                </div>
+              </dl>
+              <p className="mt-2 text-sm text-ink-muted">
+                Cash + tigum minus remaining utang.
+              </p>
             </div>
-          ) : null}
-        </div>
+
+            <div className="space-y-4">
+              <div className="flex flex-wrap gap-2">
+                {(
+                  [
+                    { id: "yearly", label: "Yearly" },
+                    { id: "monthly", label: "Monthly" },
+                  ] as const
+                ).map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => setTab(item.id)}
+                    className={`rounded-full px-4 py-1.5 text-sm font-semibold ${
+                      tab === item.id
+                        ? "bg-ink text-paper"
+                        : "border border-paper-line bg-white/70 text-ink-muted"
+                    }`}
+                  >
+                    {item.label}
+                  </button>
+                ))}
+              </div>
+
+              {tab === "yearly" ? (
+                <div className="space-y-3">
+                  {years.length > 0 ? (
+                    <div className="flex flex-wrap gap-2">
+                      {years.map((y) => {
+                        const snap = summarizeYearBudget(state, y);
+                        const active = y === year;
+                        return (
+                          <button
+                            key={y}
+                            type="button"
+                            onClick={() => setYear(y)}
+                            className={`rounded-full border px-3 py-1.5 text-sm font-semibold ${
+                              active
+                                ? "border-ink bg-ink text-paper"
+                                : "border-paper-line bg-white/70 text-ink"
+                            }`}
+                          >
+                            {y}
+                            <span
+                              className={`ml-2 text-[11px] font-medium ${active ? "text-paper/70" : "text-ink-muted"}`}
+                            >
+                              {phpSmart(snap.income)} / {phpSmart(snap.expense)}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ) : null}
+                  <OverviewDashboard scope="year" year={year} />
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {months.length > 0 ? (
+                    <div className="flex flex-wrap gap-2">
+                      {months.map((key) => {
+                        const snap = summarizeMonthOverview(state, key);
+                        const active = key === selectedMonth;
+                        return (
+                          <button
+                            key={key}
+                            type="button"
+                            onClick={() => setSelectedMonth(key)}
+                            className={`rounded-full border px-3 py-1.5 text-sm font-semibold ${
+                              active
+                                ? "border-ink bg-ink text-paper"
+                                : "border-paper-line bg-white/70 text-ink"
+                            }`}
+                          >
+                            {monthChipLabel(key)}
+                            <span
+                              className={`ml-2 text-[11px] font-medium ${active ? "text-paper/70" : "text-ink-muted"}`}
+                            >
+                              {phpSmart(snap.income)} / {phpSmart(snap.expense)}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ) : null}
+                  <OverviewDashboard scope="month" monthKey={selectedMonth} />
+                </div>
+              )}
+            </div>
+
+            {banks.length > 0 ? (
+              <div>
+                <h2 className="font-display text-lg font-semibold">Accounts</h2>
+                <ul className="mt-3 grid gap-2 sm:grid-cols-2">
+                  {banks.map((a) => (
+                    <li
+                      key={a.id}
+                      className="flex items-baseline justify-between rounded-xl border border-paper-line bg-white/60 px-3 py-2 text-sm"
+                    >
+                      <span>{a.name}</span>
+                      <span className="font-display font-semibold">
+                        {phpSmart(balances[a.id] ?? 0)}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+        </>
       ) : null}
+
+      <AddLoanSheet
+        open={addLoanOpen}
+        onClose={() => setAddLoanOpen(false)}
+        onViewLoans={onOpenUtang}
+      />
 
       <SimpleLogSheet
         open={logOpen}
@@ -437,6 +506,90 @@ export function HomeView({
         onManageCategories={() => onOpenMore("budget")}
       />
     </section>
+  );
+}
+
+function FirstUseCard({
+  hasDraft,
+  cashIncomplete,
+  onAddExpense,
+  onAddLoan,
+  onSetBudget,
+  onSetup,
+  onDismiss,
+}: {
+  hasDraft: boolean;
+  cashIncomplete: boolean;
+  onAddExpense: () => void;
+  onAddLoan: () => void;
+  onSetBudget: () => void;
+  onSetup: () => void;
+  onDismiss: () => void;
+}) {
+  return (
+    <div
+      className="rounded-2xl border border-paper-line bg-white/80 p-5"
+      data-testid="first-use"
+    >
+      <p className="text-xs font-semibold uppercase tracking-[0.14em] text-gold-deep">
+        Start here
+      </p>
+      <h2 className="mt-2 font-display text-xl font-semibold tracking-tight">
+        What do you want to do first?
+      </h2>
+      <p className="mt-1 text-sm text-ink-muted">
+        No setup needed. Pick one; you can do the rest later.
+      </p>
+      <div className="mt-4 grid gap-2 sm:grid-cols-3">
+        <button
+          type="button"
+          data-testid="first-add-expense"
+          onClick={onAddExpense}
+          className="rounded-full bg-ink px-5 py-3 text-sm font-semibold text-paper"
+        >
+          Add expense
+        </button>
+        <button
+          type="button"
+          data-testid="first-add-loan"
+          onClick={onAddLoan}
+          className="rounded-full border border-ink/20 bg-white px-5 py-3 text-sm font-semibold text-ink"
+        >
+          Add loan
+        </button>
+        <button
+          type="button"
+          data-testid="first-set-budget"
+          onClick={onSetBudget}
+          className="rounded-full border border-ink/20 bg-white px-5 py-3 text-sm font-semibold text-ink"
+        >
+          Set monthly budget
+        </button>
+      </div>
+      <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-paper-line pt-3">
+        <button
+          type="button"
+          data-testid="first-setup"
+          onClick={onSetup}
+          className="text-sm font-semibold text-gold-deep underline-offset-2 hover:underline"
+        >
+          {hasDraft ? "Continue setting up income and wallets" : "Set up income and wallets (optional)"}
+        </button>
+        <button
+          type="button"
+          onClick={onDismiss}
+          className="text-xs font-semibold text-ink-muted underline-offset-2 hover:underline"
+        >
+          Hide this
+        </button>
+      </div>
+      {cashIncomplete ? (
+        <p className="mt-3 text-xs text-ink-muted">
+          Cash on hand: starting balance not entered yet, so totals are
+          incomplete (not ₱0). Add it any time under More → Cash &amp; wallets.
+        </p>
+      ) : null}
+    </div>
   );
 }
 

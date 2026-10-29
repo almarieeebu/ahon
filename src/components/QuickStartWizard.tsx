@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useFinance } from "@/context/FinanceContext";
 import { emptyAccount } from "@/lib/defaults";
 import { markTourSeen } from "@/lib/help";
@@ -31,6 +31,56 @@ const DEBT_TYPES: { id: LiabilityType; label: string; name: string }[] = [
   { id: "personal", label: "Personal loan", name: "Personal loan" },
   { id: "other", label: "Other debt", name: "Other debt" },
 ];
+
+/** Partly filled setup answers, kept on this device when setup is skipped. */
+export const SETUP_DRAFT_KEY = "ahon.setup.draft.v1";
+
+type SetupDraft = {
+  step: number;
+  income: string;
+  paydays: string;
+  cash: string;
+  amounts: Record<string, string>;
+  reserve: string;
+  trackDebt: boolean;
+  debtType: LiabilityType;
+  debtName: string;
+  debtBalance: string;
+  debtMinimum: string;
+  debtDueDay: string;
+};
+
+export function loadSetupDraft(): Partial<SetupDraft> | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(SETUP_DRAFT_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as unknown;
+    return parsed && typeof parsed === "object" ? (parsed as Partial<SetupDraft>) : null;
+  } catch {
+    return null;
+  }
+}
+
+function saveSetupDraft(draft: SetupDraft) {
+  try {
+    window.localStorage.setItem(SETUP_DRAFT_KEY, JSON.stringify(draft));
+  } catch {
+    /* storage full or blocked: setup still works, just not resumable */
+  }
+}
+
+function clearSetupDraft() {
+  try {
+    window.localStorage.removeItem(SETUP_DRAFT_KEY);
+  } catch {
+    /* ignore */
+  }
+}
+
+function str(value: unknown, fallback: string): string {
+  return typeof value === "string" ? value : fallback;
+}
 
 function numberOrZero(value: string): number {
   const number = Number(value);
@@ -63,26 +113,83 @@ function dueDate(key: string, day: number): string {
  */
 export function QuickStartWizard({
   onFinished,
+  onSkip,
 }: {
   onFinished?: (opts: { offerLog: boolean }) => void;
+  /** "Set up later": answers so far are kept as a draft on this device. */
+  onSkip?: () => void;
 }) {
   const { state, updateState } = useFinance();
-  const [step, setStep] = useState(0);
+  // Resume a skipped setup with what was typed before (read once on mount).
+  const [draft] = useState(loadSetupDraft);
+  const [step, setStep] = useState(() => {
+    const n = Number(draft?.step);
+    return Number.isInteger(n) && n >= 0 && n <= 2 ? n : 0;
+  });
   const [income, setIncome] = useState(
-    state.settings.monthlyIncome ? String(state.settings.monthlyIncome) : "",
+    str(
+      draft?.income,
+      state.settings.monthlyIncome ? String(state.settings.monthlyIncome) : "",
+    ),
   );
-  const [paydays, setPaydays] = useState(state.settings.paydayDays.join(", "));
-  const [cash, setCash] = useState("");
-  const [amounts, setAmounts] = useState<Record<string, string>>({});
+  const [paydays, setPaydays] = useState(
+    str(draft?.paydays, state.settings.paydayDays.join(", ")),
+  );
+  const [cash, setCash] = useState(str(draft?.cash, ""));
+  const [amounts, setAmounts] = useState<Record<string, string>>(
+    draft?.amounts && typeof draft.amounts === "object" ? draft.amounts : {},
+  );
   const [reserve, setReserve] = useState(
-    state.settings.emergencyReserve ? String(state.settings.emergencyReserve) : "",
+    str(
+      draft?.reserve,
+      state.settings.emergencyReserve ? String(state.settings.emergencyReserve) : "",
+    ),
   );
-  const [trackDebt, setTrackDebt] = useState(false);
-  const [debtType, setDebtType] = useState<LiabilityType>("credit-card");
-  const [debtName, setDebtName] = useState("Credit card");
-  const [debtBalance, setDebtBalance] = useState("");
-  const [debtMinimum, setDebtMinimum] = useState("");
-  const [debtDueDay, setDebtDueDay] = useState("15");
+  const [trackDebt, setTrackDebt] = useState(draft?.trackDebt === true);
+  const [debtType, setDebtType] = useState<LiabilityType>(
+    DEBT_TYPES.some((t) => t.id === draft?.debtType)
+      ? (draft?.debtType as LiabilityType)
+      : "other",
+  );
+  const [debtName, setDebtName] = useState(str(draft?.debtName, ""));
+  const [debtBalance, setDebtBalance] = useState(str(draft?.debtBalance, ""));
+  const [debtMinimum, setDebtMinimum] = useState(str(draft?.debtMinimum, ""));
+  // No preset due day: blank until the person enters one.
+  const [debtDueDay, setDebtDueDay] = useState(str(draft?.debtDueDay, ""));
+  const [finished, setFinished] = useState(false);
+
+  // Keep partial answers so skipping (or closing the app) loses nothing.
+  useEffect(() => {
+    if (finished) return;
+    saveSetupDraft({
+      step,
+      income,
+      paydays,
+      cash,
+      amounts,
+      reserve,
+      trackDebt,
+      debtType,
+      debtName,
+      debtBalance,
+      debtMinimum,
+      debtDueDay,
+    });
+  }, [
+    finished,
+    step,
+    income,
+    paydays,
+    cash,
+    amounts,
+    reserve,
+    trackDebt,
+    debtType,
+    debtName,
+    debtBalance,
+    debtMinimum,
+    debtDueDay,
+  ]);
 
   const billTotal = useMemo(
     () => COMMON_BILLS.reduce((sum, bill) => sum + numberOrZero(amounts[bill.categoryId] ?? ""), 0),
@@ -101,17 +208,15 @@ export function QuickStartWizard({
     }
   }
 
-  function finish(skip = false) {
-    markTourSeen();
-    if (skip) {
-      onFinished?.({ offerLog: false });
-      updateState((current) => ({
-        ...current,
-        settings: { ...current.settings, setupComplete: true },
-      }));
-      return;
-    }
+  function skip() {
+    // Draft is already saved by the effect above; nothing is applied yet.
+    onSkip?.();
+  }
 
+  function finish() {
+    markTourSeen();
+    setFinished(true);
+    clearSetupDraft();
     onFinished?.({ offerLog: true });
 
     const takeHome = numberOrZero(income);
@@ -135,6 +240,8 @@ export function QuickStartWizard({
 
       if (trackDebt && debtOpening > 0 && !accounts.some((account) => account.name.toLowerCase() === debtName.trim().toLowerCase())) {
         const debt = emptyAccount("liability", debtName.trim() || "Debt");
+        // Interest is not asked here, so it stays "not known" (not 0%).
+        debt.interestKnown = false;
         debt.liabilityType = debtType;
         debt.mode = "revolving";
         debt.openingBalance = debtOpening;
@@ -255,11 +362,11 @@ export function QuickStartWizard({
           Quick start · {step + 1} of {steps.length}
         </p>
         <h2 className="mt-2 font-display text-2xl font-semibold tracking-tight">
-          {step === 0 ? "Set up your money plan in a few minutes" : steps[step].title}
+          {step === 0 ? "Set up income and wallets" : steps[step].title}
         </h2>
         <p className="mt-2 text-sm text-ink-muted">
           {step === 0
-            ? "No bookkeeping setup needed. We already added common bill and spending names; answer only the parts that fit your life."
+            ? "Optional. Answer only the parts that fit your life; you can stop any time and your answers are kept."
             : steps[step].hint}
         </p>
       </header>
@@ -319,13 +426,13 @@ export function QuickStartWizard({
                   <input value={debtName} onChange={(event) => setDebtName(event.target.value)} className="setup-input" placeholder="e.g. BPI card" />
                 </Field>
                 <Field label="Amount still owed">
-                  <MoneyInput value={debtBalance} onChange={setDebtBalance} placeholder="e.g. 12000" />
+                  <MoneyInput value={debtBalance} onChange={setDebtBalance} placeholder="Amount" />
                 </Field>
                 <Field label="Minimum to pay monthly">
-                  <MoneyInput value={debtMinimum} onChange={setDebtMinimum} placeholder="e.g. 1500" />
+                  <MoneyInput value={debtMinimum} onChange={setDebtMinimum} placeholder="Optional" />
                 </Field>
                 <Field label="Due day" hint="Optional; used for reminders.">
-                  <input value={debtDueDay} onChange={(event) => setDebtDueDay(event.target.value)} inputMode="numeric" className="setup-input" placeholder="e.g. 15" />
+                  <input value={debtDueDay} onChange={(event) => setDebtDueDay(event.target.value)} inputMode="numeric" className="setup-input" placeholder="Optional" />
                 </Field>
               </div>
             ) : null}
@@ -345,10 +452,10 @@ export function QuickStartWizard({
           <button
             type="button"
             data-testid="quick-start-skip"
-            onClick={() => finish(true)}
+            onClick={skip}
             className="text-sm font-semibold text-ink-muted underline-offset-2 hover:underline"
           >
-            I&apos;ll set this up later
+            I&apos;ll finish this later
           </button>
           <div className="flex gap-2">
             {step > 0 ? <button type="button" onClick={() => setStep((value) => value - 1)} className="rounded-full border border-ink/20 px-4 py-2 text-sm font-semibold">Back</button> : null}

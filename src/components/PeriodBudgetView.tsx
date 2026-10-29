@@ -180,7 +180,7 @@ export function PeriodBudgetView({
       {monthKey != null ? " for this month" : year != null ? ` for ${year}` : ""}{" "}
       yet.
       {showAddPeriod
-        ? " Copy last month from Plan, or add dates below."
+        ? " Copy last month from Budget, or add dates below."
         : " Use Add dates above, or copy last month."}
     </p>
   );
@@ -232,7 +232,7 @@ export function PeriodBudgetView({
       >
         <form onSubmit={saveCreateParticular} className="space-y-4">
           <p className="text-sm text-ink-muted">
-            Saves to Menu so you can reuse it in Log and Plan.
+            Saves under More so you can reuse it in Activity and Budget.
           </p>
           <label className="block text-xs font-semibold uppercase tracking-wide text-ink-muted">
             Particular

@@ -47,7 +47,7 @@ function formatSbError(err: { message?: string; code?: string; details?: string 
 
 /**
  * Insert rows; if the project has not yet run the latest schema.sql migration
- * (new nullable columns missing), retry once without those columns so older
+ * (new nullable columns missing), retry without those columns so older
  * databases keep syncing. Local data still keeps the fields.
  */
 async function insertCompat(
@@ -56,18 +56,23 @@ async function insertCompat(
   rows: Record<string, unknown>[],
   newColumns: string[],
 ): Promise<{ error: string | null }> {
-  const { error } = await supabase.from(table).insert(rows);
-  if (!error) return { error: null };
-  const msg = `${error.message ?? ""} ${error.details ?? ""}`.toLowerCase();
-  const missing = newColumns.filter((col) => msg.includes(col));
-  if (missing.length === 0) return { error: error.message };
-  const stripped = rows.map((row) => {
-    const copy = { ...row };
-    for (const col of missing) delete copy[col];
-    return copy;
-  });
-  const retry = await supabase.from(table).insert(stripped);
-  return { error: retry.error ? retry.error.message : null };
+  let current = rows;
+  const stripped = new Set<string>();
+  // One retry per missing column: an older database may lack several.
+  for (let attempt = 0; attempt <= newColumns.length; attempt += 1) {
+    const { error } = await supabase.from(table).insert(current);
+    if (!error) return { error: null };
+    const msg = `${error.message ?? ""} ${error.details ?? ""}`.toLowerCase();
+    const missing = newColumns.filter((col) => !stripped.has(col) && msg.includes(col));
+    if (missing.length === 0) return { error: error.message };
+    for (const col of missing) stripped.add(col);
+    current = rows.map((row) => {
+      const copy = { ...row };
+      for (const col of stripped) delete copy[col];
+      return copy;
+    });
+  }
+  return { error: `Could not save ${table}.` };
 }
 
 /** Friendlier copy for known Supabase / PostgREST failures. */
@@ -139,6 +144,8 @@ export async function loadCloudState(
       amount: num(row.amount),
       status: row.status === "paid" ? "paid" : "unpaid",
       balanceAfter: row.balance_after == null ? null : num(row.balance_after),
+      // null (pre-migration rows / legacy) = no partial-payment tracking.
+      ...(row.paid_amount == null ? {} : { paidAmount: num(row.paid_amount) }),
     });
     installmentsByAccount.set(row.account_id, list);
   }
@@ -158,6 +165,11 @@ export async function loadCloudState(
     schedule: installmentsByAccount.get(row.id),
     // null (pre-migration rows) means the balance was entered as known.
     balanceKnown: row.balance_known !== false,
+    // null (pre-migration rows) = interest was entered (known); only an
+    // explicit false means "not known".
+    ...(row.kind === "liability"
+      ? { interestKnown: row.interest_known !== false }
+      : {}),
   }));
 
   const categories: Category[] = (categoriesRes.data ?? [])
@@ -305,8 +317,9 @@ export async function saveCloudState(
         goal: a.goal,
         archived: a.archived,
         balance_known: a.balanceKnown !== false,
+        interest_known: a.kind === "liability" ? a.interestKnown !== false : null,
       })),
-      ["balance_known"],
+      ["balance_known", "interest_known"],
     );
     if (error) return { error };
   }
@@ -320,12 +333,18 @@ export async function saveCloudState(
       amount: s.amount,
       status: s.status,
       balance_after: s.balanceAfter,
+      paid_amount: s.paidAmount ?? null,
       sort_order: i,
     })),
   );
   if (installmentRows.length) {
-    const { error } = await supabase.from("installments").insert(installmentRows);
-    if (error) return { error: error.message };
+    const { error } = await insertCompat(
+      supabase,
+      "installments",
+      installmentRows,
+      ["paid_amount"],
+    );
+    if (error) return { error };
   }
 
   if (state.categories.length) {

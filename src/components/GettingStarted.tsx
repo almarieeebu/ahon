@@ -15,21 +15,21 @@ const STEPS: {
     title: "Usual month",
     body: "Enter take-home pay, cash now, and the bills you always pay. Skip any amount you do not know yet.",
     focus: "budget",
-    cta: "Money plan",
+    cta: "Income & recurring bills",
   },
   {
     n: 2,
-    title: "Log when money moves",
+    title: "Add expenses when money moves",
     body: "Payday, a bill, or gastos — amount and what it was for. That is enough.",
     focus: "ledger",
-    cta: "Open Log",
+    cta: "Open Activity",
   },
   {
     n: 3,
     title: "Later, if you want",
-    body: "Tigum pots, extra wallets, and extra names live in Menu. You do not need them to start.",
+    body: "Tigum pots, extra wallets, and extra names live under More. You do not need them to start.",
     focus: "accounts",
-    cta: "Open Menu",
+    cta: "Open More",
   },
 ];
 

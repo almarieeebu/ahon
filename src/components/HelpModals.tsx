@@ -27,7 +27,7 @@ export function PageHelpModal({
         ))}
       </ul>
       <p className="mt-4 text-xs text-ink-muted">
-        Full guide: Menu → Profile → Open manual.
+        Full guide: More → Profile → Open manual.
       </p>
     </Modal>
   );

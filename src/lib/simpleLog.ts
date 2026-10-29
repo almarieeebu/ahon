@@ -5,6 +5,7 @@ import {
   applyRemoveTransaction,
   checkLoanPayment,
   findLiability,
+  installmentShortfall,
   payNextInstallment,
   repriceInstallmentRow,
   syncBillStatus,
@@ -559,7 +560,9 @@ function paymentFromLine(
 
   if (debt.mode === "installment" && debt.schedule?.length) {
     const next = nextUnpaid(debt.schedule);
-    const paid = next ? payNextInstallment(state.accounts, debt, next.amount) : null;
+    // Pay what is still due on that installment (after partial payments).
+    const due = next ? installmentShortfall(next) : 0;
+    const paid = next && due > 0 ? payNextInstallment(state.accounts, debt, due) : null;
     if (next && paid) {
       return {
         accounts: paid.accounts,
@@ -567,7 +570,7 @@ function paymentFromLine(
           id: uid(),
           date,
           kind: "payment",
-          amount: next.amount,
+          amount: due,
           category: "debt",
           particular: ref.particular,
           particularId: ref.particularId,

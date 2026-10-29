@@ -102,7 +102,7 @@ export function OverviewDashboard({
             By particular
           </h3>
           <p className="text-xs text-ink-muted">
-            Planned amounts from Plan · Actual from Log
+            Planned amounts from Budget · Actual from Activity
           </p>
         </div>
 

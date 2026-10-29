@@ -152,7 +152,7 @@ export function RecordForm({
 
     if (kind === "payment") {
       if (debts.length === 0) {
-        setError("You have no loans yet. Add a loan in Utang first, then record the payment.");
+        setError("You have no loans yet. Add a loan in Loans first, then record the payment.");
         return;
       }
       if (!resolvedTo) {
@@ -360,7 +360,7 @@ export function RecordForm({
                 onClick={onManageParticulars}
                 className="font-semibold text-ink underline-offset-2 hover:underline"
               >
-                Manage names in Menu
+                Manage names in More
               </button>
             ) : null}
           </p>
@@ -384,8 +384,8 @@ export function RecordForm({
             {categoryOptions.length === 0 ? (
               <option value="">
                 {kind === "income"
-                  ? "Add an income group in Menu → Money plan"
-                  : "Add an expense group in Menu → Money plan"}
+                  ? "Add an income group in More → Income & recurring bills"
+                  : "Add an expense group in More → Income & recurring bills"}
               </option>
             ) : (
               categoryOptions.map((c) => (
@@ -402,7 +402,7 @@ export function RecordForm({
                 onClick={onManageCategories}
                 className="font-semibold text-ink underline-offset-2 hover:underline"
               >
-                Manage groups in Menu
+                Manage groups in More
               </button>
             </p>
           ) : null}
@@ -451,7 +451,7 @@ export function RecordForm({
           >
             {kind === "payment" ? (
               <option value="">
-                {debts.length === 0 ? "No loans yet — add one in Utang" : "Choose a loan"}
+                {debts.length === 0 ? "No loans yet — add one in Loans" : "Choose a loan"}
               </option>
             ) : null}
             {toOptions.map((a) => (

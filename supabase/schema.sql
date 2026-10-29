@@ -225,4 +225,14 @@ create index if not exists transactions_budget_line_id_idx
 -- Payments keep linking the loan explicitly through to_id (kind 'payment').
 -- (Kind constraint above already allows 'borrow'.)
 
+-- ---------- migrate existing DBs: loans without guesses ----------
+-- Safe to re-run; nullable columns only, RLS unchanged (existing *_own
+-- policies cover these tables).
+-- Interest may be unknown: false = not known (monthly_rate 0 is a
+-- placeholder, not 0%); null (older rows) = entered, i.e. known.
+alter table public.accounts add column if not exists interest_known boolean;
+-- Partial payments on a scheduled installment: total paid toward that row.
+-- null = legacy row (status alone says paid/unpaid).
+alter table public.installments add column if not exists paid_amount numeric(14, 2);
+
 notify pgrst, 'reload schema';

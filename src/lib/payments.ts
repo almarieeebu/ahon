@@ -1,6 +1,6 @@
 import { emptyAccount } from "./defaults";
 import { MAX_AMOUNT, parseAmount, roundCentavos, todayIso, uid } from "./money";
-import { nextUnpaid, scheduleRemaining } from "./schedule";
+import { installmentPaidSoFar, nextUnpaid, scheduleRemaining } from "./schedule";
 import { accountBalances, byKind, liabilityLeft } from "./selectors";
 import type { Account, AppState, Installment, Transaction } from "./types";
 
@@ -95,29 +95,76 @@ function shiftPaidBalances(
   );
 }
 
-/** Mark an installment unpaid again and give its amount back to later rows. */
+const FULL_EPSILON = 0.005;
+
+function isCovered(paid: number, amount: number): boolean {
+  return paid >= amount - FULL_EPSILON;
+}
+
+/**
+ * Take `removed` back from one installment (its payment was deleted or moved).
+ * Partial-payment rows keep what is still paid; legacy rows (no paidAmount)
+ * go back to unpaid. Later paid rows get the amount back on their balance.
+ */
 export function unpayInstallmentRow(
   accounts: Account[],
   accountId: string,
   installmentId: string,
-  paidAmount: number,
+  removed: number,
 ): Account[] {
   return accounts.map((a) => {
     if (a.id !== accountId || !a.schedule) return a;
     const index = a.schedule.findIndex((r) => r.id === installmentId);
-    if (index < 0 || a.schedule[index].status !== "paid") return a;
+    if (index < 0) return a;
+    const row = a.schedule[index];
+    if (row.paidAmount == null) {
+      if (row.status !== "paid") return a;
+      const schedule = shiftPaidBalances(
+        a.schedule.map((r, i) =>
+          i === index ? { ...r, status: "unpaid" as const, balanceAfter: null } : r,
+        ),
+        index + 1,
+        removed,
+      );
+      return { ...a, schedule };
+    }
+    const left = roundCentavos(Math.max(0, row.paidAmount - removed));
+    const paidAmount = left > 0 ? left : undefined;
+    if (row.status !== "paid") {
+      return {
+        ...a,
+        schedule: shiftPaidBalances(
+          a.schedule.map((r, i) => (i === index ? { ...r, paidAmount } : r)),
+          index + 1,
+          removed,
+        ),
+      };
+    }
+    if (isCovered(left, row.amount)) {
+      // Still fully paid (it had been overpaid): only the balance moves.
+      return {
+        ...a,
+        schedule: shiftPaidBalances(
+          a.schedule.map((r, i) => (i === index ? { ...r, paidAmount } : r)),
+          index,
+          removed,
+        ),
+      };
+    }
     const schedule = shiftPaidBalances(
       a.schedule.map((r, i) =>
-        i === index ? { ...r, status: "unpaid" as const, balanceAfter: null } : r,
+        i === index
+          ? { ...r, status: "unpaid" as const, balanceAfter: null, paidAmount }
+          : r,
       ),
       index + 1,
-      paidAmount,
+      removed,
     );
     return { ...a, schedule };
   });
 }
 
-/** Re-base a paid installment after its payment amount was edited. */
+/** Re-base an installment after its payment amount was edited. */
 export function repriceInstallmentRow(
   accounts: Account[],
   accountId: string,
@@ -127,41 +174,172 @@ export function repriceInstallmentRow(
 ): Account[] {
   const delta = roundCentavos(oldAmount - newAmount);
   if (!delta) return accounts;
+  const account = accounts.find((a) => a.id === accountId);
+  const row = account?.schedule?.find((r) => r.id === installmentId);
+  if (!account?.schedule || !row) return accounts;
+  if (row.paidAmount == null) {
+    if (row.status !== "paid") return accounts;
+    return accounts.map((a) => {
+      if (a.id !== accountId || !a.schedule) return a;
+      const index = a.schedule.findIndex((r) => r.id === installmentId);
+      return { ...a, schedule: shiftPaidBalances(a.schedule, index, delta) };
+    });
+  }
+  // Partial-aware rows: take the old amount off, then apply the new one.
+  const without = unpayInstallmentRow(accounts, accountId, installmentId, oldAmount);
+  return applyToInstallment(without, accountId, installmentId, newAmount);
+}
+
+/**
+ * Apply `amount` to one installment: adds to what is paid on it, marks it
+ * paid only once the scheduled amount is covered, and records the balance
+ * left after it. Anything above the scheduled amount still lowers the
+ * balance (it is kept on this row so a delete can reverse it exactly).
+ */
+function applyToInstallment(
+  accounts: Account[],
+  accountId: string,
+  installmentId: string,
+  amount: number,
+): Account[] {
   return accounts.map((a) => {
     if (a.id !== accountId || !a.schedule) return a;
     const index = a.schedule.findIndex((r) => r.id === installmentId);
-    if (index < 0 || a.schedule[index].status !== "paid") return a;
-    return { ...a, schedule: shiftPaidBalances(a.schedule, index, delta) };
+    if (index < 0) return a;
+    const row = a.schedule[index];
+    const before = scheduleRemaining(a.openingBalance, a.schedule);
+    const after = Math.max(0, roundCentavos(before - amount));
+    if (row.status === "paid") {
+      // Adding to an already paid row (e.g. an edit raised the amount).
+      return {
+        ...a,
+        schedule: shiftPaidBalances(
+          a.schedule.map((r, i) =>
+            i === index
+              ? { ...r, paidAmount: roundCentavos(installmentPaidSoFar(r) + amount) }
+              : r,
+          ),
+          index,
+          -amount,
+        ),
+      };
+    }
+    const paidAmount = roundCentavos((row.paidAmount ?? 0) + amount);
+    const full = isCovered(paidAmount, row.amount);
+    // Later rows already marked paid (out-of-order history) also owe less.
+    return {
+      ...a,
+      schedule: shiftPaidBalances(
+        a.schedule.map((r, i) =>
+          i === index
+            ? {
+                ...r,
+                paidAmount,
+                status: full ? ("paid" as const) : ("unpaid" as const),
+                balanceAfter: full ? after : null,
+              }
+            : r,
+        ),
+        index + 1,
+        -amount,
+      ),
+    };
   });
 }
 
 /**
- * Mark the next unpaid installment of a schedule loan as paid by `amount`.
+ * Apply a payment of `amount` to the next unpaid installment of a schedule
+ * loan. A smaller amount is a partial payment (row stays unpaid, its paid
+ * amount grows); the row is marked paid only once fully covered.
  * Returns null when the loan has no unpaid installment.
  */
 export function payNextInstallment(
   accounts: Account[],
   loan: Account,
   amount: number,
-): { accounts: Account[]; installmentId: string; due: string } | null {
+): { accounts: Account[]; installmentId: string; due: string; fullyPaid: boolean } | null {
   const next = nextUnpaid(loan.schedule);
   if (!next) return null;
-  const before = scheduleRemaining(loan.openingBalance, loan.schedule);
-  const after = Math.max(0, roundCentavos(before - amount));
+  const nextAccounts = applyToInstallment(accounts, loan.id, next.id, amount);
+  const row = nextAccounts
+    .find((a) => a.id === loan.id)
+    ?.schedule?.find((r) => r.id === next.id);
   return {
     installmentId: next.id,
     due: next.due,
-    accounts: accounts.map((a) =>
-      a.id !== loan.id
-        ? a
-        : {
-            ...a,
-            schedule: a.schedule?.map((r) =>
-              r.id === next.id ? { ...r, status: "paid" as const, balanceAfter: after } : r,
-            ),
-          },
-    ),
+    fullyPaid: row?.status === "paid",
+    accounts: nextAccounts,
   };
+}
+
+/** What is still due on one installment after partial payments. */
+export function installmentShortfall(row: Installment): number {
+  if (row.status === "paid") return 0;
+  return roundCentavos(Math.max(0, row.amount - (row.paidAmount ?? 0)));
+}
+
+/**
+ * Record a payment toward one explicit loan. Wallet/revolving balances are
+ * derived from the transaction; schedule loans also apply it to the next
+ * unpaid installment (partial payments allowed). Overpaying needs
+ * `confirmOverpay`. Returns null when the payment cannot be saved.
+ * Passing an `id` that already exists is a no-op (double submit / retry).
+ */
+export function applyLoanPayment(
+  state: AppState,
+  input: {
+    liabilityId: string;
+    amount: number;
+    fromId: string | null;
+    date?: string;
+    note?: string;
+    id?: string;
+    confirmOverpay?: boolean;
+  },
+): AppState | null {
+  if (input.id && state.transactions.some((t) => t.id === input.id)) return state;
+  const amount = parseAmount(input.amount);
+  if (!amount.ok) return null;
+  const check = checkLoanPayment(state, {
+    liabilityId: input.liabilityId,
+    amount: amount.value,
+    confirmOverpay: input.confirmOverpay,
+  });
+  if (check.error) return null;
+  const loan = findLiability(state, input.liabilityId);
+  if (!loan) return null;
+  if (input.fromId) {
+    const source = state.accounts.find(
+      (a) => a.id === input.fromId && a.kind !== "liability" && !a.archived,
+    );
+    if (!source) return null;
+  }
+  let accounts = state.accounts;
+  let installmentId: string | undefined;
+  let note = input.note?.trim() ?? "";
+  if (loan.mode === "installment" && loan.schedule?.length) {
+    const paid = payNextInstallment(accounts, loan, amount.value);
+    if (paid) {
+      accounts = paid.accounts;
+      installmentId = paid.installmentId;
+      if (!note) note = `${loan.name} · ${paid.due}`;
+    }
+  }
+  if (!note && input.fromId == null) note = "Paid from untracked source";
+  const tx: Transaction = {
+    id: input.id ?? uid(),
+    date: input.date ?? todayIso(),
+    kind: "payment",
+    amount: amount.value,
+    category: "debt",
+    particular: "",
+    particularId: null,
+    fromId: input.fromId,
+    toId: loan.id,
+    note,
+    ...(installmentId ? { installmentId } : {}),
+  };
+  return { ...state, accounts, transactions: [...state.transactions, tx] };
 }
 
 /** Planned bill is paid while at least one transaction links to it. */

@@ -10,7 +10,8 @@ async function enterLog(page: Page) {
   const local = page.getByTestId("landing-local");
   if (await local.isVisible()) await local.click();
   else await page.getByTestId("landing-open").click();
-  await page.getByTestId("quick-start-skip").click();
+  // Setup is optional: the app opens on Home with first-use actions.
+  await expect(page.getByTestId("first-use")).toBeVisible();
   await page.getByTestId("tab-ledger").click();
 }
 

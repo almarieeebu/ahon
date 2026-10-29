@@ -14,22 +14,23 @@ import { APP_NAME } from "@/lib/defaults";
 import { monthKey, monthLabel } from "@/lib/money";
 import type { TabId } from "@/lib/types";
 
-const PRIMARY_TABS: { id: TabId; label: string }[] = [
+/** Primary navigation. Internal ids stay stable; labels are what people see. */
+export const PRIMARY_TABS: { id: TabId; label: string }[] = [
   { id: "home", label: "Home" },
-  { id: "ledger", label: "Log" },
-  { id: "budget", label: "Plan" },
+  { id: "ledger", label: "Activity" },
+  { id: "budget", label: "Budget" },
+  { id: "utang", label: "Loans" },
 ];
 
 const MENU_PAGES: { id: TabId; label: string; hint: string }[] = [
-  { id: "save", label: "Tigum", hint: "Savings pots & goals" },
-  { id: "utang", label: "Utang", hint: "Loans & credit to pay" },
+  { id: "save", label: "Savings", hint: "Tigum pots & goals" },
 ];
 
 const MENU_SETUP: { id: MoreFocusTab; label: string; hint: string }[] = [
   {
     id: "budget",
-    label: "Money plan",
-    hint: "Paydays, bills & spending groups",
+    label: "Income & recurring bills",
+    hint: "Take-home pay, paydays, bills & spending groups",
   },
   {
     id: "particulars",
@@ -56,6 +57,9 @@ export function AppShell() {
   const [helpOpen, setHelpOpen] = useState(false);
   const [manualOpen, setManualOpen] = useState(false);
   const [tourSession, setTourSession] = useState(0);
+  // Ask the Loans page to open Add loan (from Activity / the log sheet).
+  const [pendingAddLoan, setPendingAddLoan] = useState(false);
+  const consumeAddLoan = useCallback(() => setPendingAddLoan(false), []);
 
   const goTab = useCallback((next: TabId) => {
     if (next === "more") setMoreFocus(null);
@@ -82,13 +86,18 @@ export function AppShell() {
 
   const justSaved = savedAt !== null;
   const showMonth = tab === "home" || tab === "ledger";
-  const menuActive =
-    tab === "save" || tab === "utang" || tab === "more";
+  const menuActive = tab === "save" || tab === "more";
 
   function openMore(focus: MoreFocusTab) {
     setMoreFocus(focus);
     setTab("more");
     setMenuOpen(false);
+  }
+
+  function openAddLoan() {
+    setTab("utang");
+    setMenuOpen(false);
+    setPendingAddLoan(true);
   }
 
   return (
@@ -145,11 +154,16 @@ export function AppShell() {
           <Ledger
             onManageParticulars={() => openMore("particulars")}
             onManageCategories={() => openMore("budget")}
-            onAddLoan={() => setTab("utang")}
+            onAddLoan={openAddLoan}
           />
         ) : null}
         {tab === "save" ? <SaveView /> : null}
-        {tab === "utang" ? <UtangView /> : null}
+        {tab === "utang" ? (
+          <UtangView
+            startWithAdd={pendingAddLoan}
+            onStartConsumed={consumeAddLoan}
+          />
+        ) : null}
         {tab === "budget" ? <BudgetTabView /> : null}
         {tab === "more" ? (
           <MoreView
@@ -160,33 +174,44 @@ export function AppShell() {
         ) : null}
       </main>
 
-      <nav className="fixed inset-x-0 bottom-0 border-t border-paper-line bg-paper/95 backdrop-blur">
-        <ul className="mx-auto grid max-w-6xl grid-cols-4">
-          {PRIMARY_TABS.map((item) => (
-            <li key={item.id}>
-              <button
-                type="button"
-                onClick={() => goTab(item.id)}
-                className={`flex w-full flex-col items-center py-3.5 text-base font-semibold ${
-                  tab === item.id ? "text-gold-deep" : "text-ink-muted"
-                }`}
-                data-testid={`tab-${item.id}`}
-              >
-                {item.label}
-              </button>
-            </li>
-          ))}
-          <li>
+      <nav
+        aria-label="Main"
+        className="fixed inset-x-0 bottom-0 z-40 border-t border-paper-line bg-paper/95 backdrop-blur"
+      >
+        <ul className="mx-auto grid max-w-6xl grid-cols-5">
+          {PRIMARY_TABS.map((item) => {
+            const active = tab === item.id;
+            return (
+              <li key={item.id} className="min-w-0">
+                <button
+                  type="button"
+                  onClick={() => goTab(item.id)}
+                  aria-current={active ? "page" : undefined}
+                  className={`flex w-full min-w-0 flex-col items-center px-0.5 py-3.5 text-[13px] font-semibold sm:text-base ${
+                    active ? "text-gold-deep underline decoration-2 underline-offset-4" : "text-ink-muted"
+                  }`}
+                  data-testid={`tab-${item.id}`}
+                >
+                  <span className="max-w-full truncate">{item.label}</span>
+                </button>
+              </li>
+            );
+          })}
+          <li className="min-w-0">
             <button
               type="button"
               onClick={() => setMenuOpen(true)}
-              aria-label="Open menu"
+              aria-haspopup="dialog"
               aria-expanded={menuOpen}
-              className={`flex w-full items-center justify-center py-3.5 ${
-                menuActive || menuOpen ? "text-gold-deep" : "text-ink-muted"
+              data-testid="tab-more"
+              className={`flex w-full min-w-0 flex-col items-center gap-0.5 px-0.5 py-2 text-[13px] font-semibold sm:text-base ${
+                menuActive || menuOpen
+                  ? "text-gold-deep underline decoration-2 underline-offset-4"
+                  : "text-ink-muted"
               }`}
             >
               <MenuIcon />
+              <span>More</span>
             </button>
           </li>
         </ul>
@@ -203,13 +228,14 @@ export function AppShell() {
           <div
             role="dialog"
             aria-modal="true"
-            aria-label="Menu"
+            aria-label="More"
             className="relative z-10 max-h-[85dvh] w-full max-w-lg overflow-y-auto rounded-t-2xl border border-paper-line bg-paper p-5 shadow-xl sm:rounded-2xl"
           >
             <div className="mb-4 flex items-start justify-between gap-3">
-              <h2 className="font-display text-xl font-semibold">Menu</h2>
+              <h2 className="font-display text-xl font-semibold">More</h2>
               <button
                 type="button"
+                autoFocus
                 onClick={() => setMenuOpen(false)}
                 className="text-sm font-semibold text-ink-muted hover:text-ink"
               >
@@ -305,8 +331,8 @@ export function AppShell() {
 function MenuIcon() {
   return (
     <svg
-      width="22"
-      height="22"
+      width="18"
+      height="18"
       viewBox="0 0 20 20"
       fill="none"
       aria-hidden
@@ -326,13 +352,13 @@ function heading(tab: TabId, moreFocus: MoreFocusTab | null): string {
     case "home":
       return "Your money";
     case "ledger":
-      return "Log";
+      return "Activity";
     case "save":
-      return "Tigum";
+      return "Savings";
     case "utang":
-      return "Utang";
+      return "Loans / Utang";
     case "budget":
-      return "Money plan";
+      return "Budget";
     case "more":
       switch (moreFocus) {
         case "particulars":
@@ -342,9 +368,9 @@ function heading(tab: TabId, moreFocus: MoreFocusTab | null): string {
         case "profile":
           return "Profile";
         case "budget":
-          return "Money plan";
+          return "Income & recurring bills";
         default:
-          return "Setup";
+          return "More";
       }
   }
 }

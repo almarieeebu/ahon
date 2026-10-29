@@ -49,7 +49,7 @@ export function Ledger({
   function openEdit(tx: Transaction) {
     if (tx.kind === "adjustment") {
       window.alert(
-        "Balance adjustments are log history. To change a balance again, reconcile from Accounts / Tigum / Utang.",
+        "Balance adjustments are log history. To change a balance again, reconcile from Cash & wallets, Savings, or Loans.",
       );
       return;
     }

@@ -125,7 +125,7 @@ export function AccountsPanel() {
                 />
               </label>
               <p className="mt-1 text-[11px] text-ink-muted">
-                Reconciliation posts a Balance adjustment in Log — opening
+                Reconciliation posts a Balance adjustment in Activity — opening
                 balance stays unchanged.
               </p>
               <button

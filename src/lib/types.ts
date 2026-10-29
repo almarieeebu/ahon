@@ -1,3 +1,4 @@
+/** Tab ids are internal; labels: ledger = Activity, budget = Budget, utang = Loans. */
 export type TabId = "home" | "ledger" | "save" | "utang" | "budget" | "more";
 
 export type AccountKind = "cash" | "savings" | "liability";
@@ -14,6 +15,12 @@ export interface Installment {
   amount: number;
   status: InstallmentStatus;
   balanceAfter: number | null;
+  /**
+   * Total paid toward this installment so far. Set when payments are recorded
+   * by amount (partial payments). A row is "paid" only once this covers
+   * `amount`. Missing on legacy rows: a paid row then counts as fully paid.
+   */
+  paidAmount?: number;
 }
 
 export interface Account {
@@ -35,6 +42,12 @@ export interface Account {
    * Missing (legacy records) means known.
    */
   balanceKnown?: boolean;
+  /**
+   * Liabilities only. False when the person did not know the interest rate,
+   * so monthlyRate 0 is a placeholder, not a verified 0%. Missing (legacy
+   * records) means known.
+   */
+  interestKnown?: boolean;
 }
 
 export type ParticularTone =

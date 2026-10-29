@@ -15,32 +15,32 @@ export const TOUR_STEPS: TourStep[] = [
   {
     id: "welcome",
     title: "Welcome to Ahon",
-    body: "Ahon is your money notebook. Home answers: am I okay this month? Log money when it moves. Details stay in Menu.",
+    body: "Ahon is your money notebook. Home answers: am I okay this month? Add an expense when money moves. Setup details stay under More.",
     tab: "home",
   },
   {
     id: "setup",
     title: "Your usual month",
-    body: "Quick start asks only about pay, cash, usual needs, and optional utang. You can change details from Menu later.",
+    body: "Setup is optional. Income & recurring bills (under More) holds pay, paydays, and usual bills whenever you are ready.",
     tab: "more",
   },
   {
     id: "budget",
-    title: "Plan is a guide",
-    body: "Your first plan can be created during Quick start. Copy last month when a new month starts. Log is what really happened.",
+    title: "Budget is a guide",
+    body: "Set a monthly budget on the Budget tab. Copy last month when a new month starts. Activity is what really happened.",
     tab: "budget",
   },
   {
     id: "ledger",
-    title: "Log money",
+    title: "Activity",
     body: "When payday comes or you spend, add amount and what it was for. That is enough for most days.",
     tab: "ledger",
   },
   {
     id: "tigum-utang",
-    title: "Tigum & Utang",
-    body: "Find Tigum and Utang under Menu. Tigum = savings pots. Utang = loans and credit. Home shows the overall picture.",
-    tab: "save",
+    title: "Loans & Savings",
+    body: "Loans (utang) has its own tab: add a loan, then Record payment on its card. Savings (tigum) pots are under More.",
+    tab: "utang",
   },
   {
     id: "help",
@@ -60,38 +60,38 @@ export const PAGE_TIPS: Record<TabId, PageTip> = {
     title: "Home",
     bullets: [
       "First answer: Am I okay this month?",
-      "Log money from Home. Tap I paid this when a planned bill actually went out.",
+      "Add an expense or a loan from Home. Tap I paid this when a planned bill actually went out.",
       "Weekly habit: when paid, when a bill is paid, when cash is spent, then read the Home sentence.",
       "If income cannot cover bills, Survival Mode shows pay-first order.",
     ],
   },
   ledger: {
-    title: "Log",
+    title: "Activity",
     bullets: [
-      "Log money in or spent with an amount and a chip.",
+      "Add expense, or Log money for money in, with an amount and a category.",
       "More details is there for transfers, notes, or extra wallets.",
       "A weekly grocery total is enough — you do not need every jeepney fare.",
     ],
   },
   save: {
-    title: "Tigum",
+    title: "Savings",
     bullets: [
       "Each pot is a savings account with an optional goal.",
-      "Move money from Cash into a pot using More details on Log, or set the balance here.",
+      "Move money from Cash into a pot using More details on Activity, or set the balance here.",
       "Use clear names (Emergency, House, Kids’ school).",
     ],
   },
   utang: {
-    title: "Utang",
+    title: "Loans / Utang",
     bullets: [
-      "Add each loan or credit card you still owe.",
-      "Overdue and Priority badges surface what needs attention first.",
-      "Mark installment bayad when you pay — it also writes a log.",
+      "Add loan: choose “I already owe this” (cash does not change) or “I received this money now” (the wallet and the debt both go up; it is not income).",
+      "Only the name and amount are needed. Leave interest blank if you do not know it.",
+      "Record payment on a loan’s card. Partial payments are fine; Ahon shows what is still owed.",
       "Remaining balance feeds the Home utang number.",
     ],
   },
   budget: {
-    title: "Plan",
+    title: "Budget",
     bullets: [
       "This is the guide for the month, not the truth of what happened.",
       "Copy last month when a new month starts.",
@@ -99,9 +99,9 @@ export const PAGE_TIPS: Record<TabId, PageTip> = {
     ],
   },
   more: {
-    title: "Setup",
+    title: "More",
     bullets: [
-      "Open from Menu: Money plan, Bill & income names, Cash & wallets, Profile.",
+      "Open from More: Savings, Income & recurring bills, Bill & income names, Cash & wallets, Profile.",
       "You can wait until after you have logged a few days.",
       "Cash & wallets = cash on hand, GCash, Maya, and banks.",
     ],
@@ -125,19 +125,19 @@ export const MANUAL_SECTIONS: ManualSection[] = [
   {
     title: "First-time setup",
     paragraphs: [
-      "1) Quick start — take-home pay, cash now, usual needs, optional utang.",
-      "2) Ahon creates a first plan. You do not need to name categories first.",
-      "3) Log money when it moves. Home tells you if you are still okay.",
+      "You can start right away: Add expense, Add loan, or Set monthly budget. Setup is optional.",
+      "When ready, Set up income and wallets — take-home pay, cash now, usual needs. Skipping keeps what you typed.",
+      "Add expenses when money moves. Home tells you if you are still okay.",
     ],
   },
   {
     title: "Everyday use",
     paragraphs: [
-      "Payday → Home or Log → Money in.",
-      "Gastos → Log money → amount + Food / Bills / Load / Transport / Other.",
+      "Payday → Home or Activity → Log money → Money in.",
+      "Gastos → Add expense → amount + category.",
       "A bill you already planned → I paid this.",
-      "I-save → Tigum in Menu, or More details on Log.",
-      "Bayad utang → Utang in Menu, or the Utang chip.",
+      "I-save → Savings under More, or More details on Activity.",
+      "Bayad utang → Loans tab → Record payment on that loan’s card.",
       "Once a week, read the sentence on Home.",
     ],
   },
@@ -146,14 +146,14 @@ export const MANUAL_SECTIONS: ManualSection[] = [
     paragraphs: [
       "Each person should use their own Sign up email (or one shared household login you all trust).",
       "Do not share your password in chat. Send only the app link and this Manual.",
-      "Live app: https://ahon-kohl.vercel.app — Sign up → Quick start → Help anytime.",
+      "Live app: https://ahon-kohl.vercel.app — Sign up → Add expense → Help anytime.",
     ],
   },
   {
     title: "Tips",
     paragraphs: [
       "A weekly total for food is enough; you do not need every small fare.",
-      "Export a backup from Menu → Profile before big changes.",
+      "Export a backup from More → Profile before big changes.",
       "If sync fails, check Profile for the error, then try again on Wi‑Fi.",
     ],
   },
