@@ -105,13 +105,15 @@ export function MoreView({
 
   return (
     <section className="space-y-6">
-      <div className="flex flex-wrap gap-2">
+      {/* Wide screens list these pages in the sidebar. */}
+      <div className="flex flex-wrap gap-2 lg:hidden">
         {MORE_TABS.map((item) => (
           <button
             key={item.id}
             type="button"
             onClick={() => setTab(item.id)}
-            className={`rounded-full px-3 py-1.5 text-xs font-semibold ${
+            aria-pressed={tab === item.id}
+            className={`min-h-10 rounded-full px-3.5 text-sm font-semibold ${
               tab === item.id
                 ? "bg-ink text-paper"
                 : "border border-paper-line bg-white text-ink-muted"

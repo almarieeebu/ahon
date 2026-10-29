@@ -14,10 +14,10 @@ function visible(page: Page, testId: string) {
 }
 
 test.describe("Navigation", () => {
-  test("shows Home, Activity, Budget, Loans and More", async ({ page }) => {
+  test("shows Home, Activity, Budget, Loans and the setup pages", async ({ page }) => {
     await enterApp(page);
     const nav = page.getByRole("navigation", { name: "Main" });
-    for (const label of ["Home", "Activity", "Budget", "Loans", "More"]) {
+    for (const label of ["Home", "Activity", "Budget", "Loans"]) {
       await expect(nav.getByRole("button", { name: label, exact: true })).toBeVisible();
     }
 
@@ -25,6 +25,16 @@ test.describe("Navigation", () => {
     await expect(page.locator("h1")).toHaveText("Loans / Utang");
     await expect(page.getByTestId("tab-utang")).toHaveAttribute("aria-current", "page");
 
+    const wide = (page.viewportSize()?.width ?? 0) >= 1024;
+    if (wide) {
+      // Wide screens list the More pages directly in the sidebar.
+      await expect(page.getByTestId("tab-more")).toBeHidden();
+      await expect(nav.getByRole("button", { name: "Savings", exact: true })).toBeVisible();
+      await expect(nav.getByRole("button", { name: "Income & recurring bills" })).toBeVisible();
+      await expect(nav.getByText("Money plan")).toHaveCount(0);
+      return;
+    }
+    await expect(nav.getByRole("button", { name: "More", exact: true })).toBeVisible();
     await page.getByTestId("tab-more").click();
     const more = page.getByRole("dialog", { name: "More" });
     await expect(more.getByText("Income & recurring bills")).toBeVisible();

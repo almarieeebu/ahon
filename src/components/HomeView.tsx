@@ -7,6 +7,7 @@ import { CriticalAlertsPanel } from "@/components/CriticalAlertsPanel";
 import { MoneyNeededCard } from "@/components/MoneyNeededCard";
 import { QuickStartWizard, loadSetupDraft } from "@/components/QuickStartWizard";
 import { SimpleLogSheet } from "@/components/SimpleLogSheet";
+import { WalletPanel } from "@/components/AccountsPanel";
 import {
   GettingStarted,
   isFreshBooks,
@@ -121,6 +122,7 @@ export function HomeView({
   const [logPrefill, setLogPrefill] = useState<LogPrefill | undefined>();
   const [logTitle, setLogTitle] = useState<string | undefined>();
   const [detailsOpen, setDetailsOpen] = useState(false);
+  const [walletId, setWalletId] = useState<string | null>(null);
   const [addLoanOpen, setAddLoanOpen] = useState(false);
   const [wizardOpen, setWizardOpen] = useState(false);
   // Read when the first-use card renders; a skipped setup leaves a draft.
@@ -205,7 +207,7 @@ export function HomeView({
   }
 
   return (
-    <section className="space-y-6">
+    <section className="space-y-5">
       {firstUse ? (
         <FirstUseCard
           hasDraft={hasDraft}
@@ -225,18 +227,8 @@ export function HomeView({
 
       {!firstUse || hasRecords ? (
         <>
-        <p className="text-xs text-ink-muted">
-          Sync:{" "}
-          <span className="font-semibold text-ink">
-            {syncMode === "cloud" ? "Cloud (Supabase)" : "This device only"}
-          </span>
-          {cloudError ? (
-            <span className="ml-2 text-danger" role="alert">
-              · {cloudError}
-            </span>
-          ) : null}
-        </p>
-
+        <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
+        <div className="min-w-0 space-y-5">
         <div
           className={`rounded-2xl border p-5 ${
             status.tone === "need"
@@ -269,12 +261,12 @@ export function HomeView({
               </span>
             ) : null}
           </p>
-          <div className="mt-4 grid grid-cols-2 gap-2">
+          <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3">
             <button
               type="button"
               data-testid="home-add-expense"
               onClick={openAddExpense}
-              className="rounded-full bg-ink px-5 py-3 text-sm font-semibold text-paper"
+              className="min-h-11 rounded-full bg-ink px-4 text-sm font-semibold text-paper hover:bg-ink/90"
             >
               Add expense
             </button>
@@ -282,7 +274,7 @@ export function HomeView({
               type="button"
               data-testid="home-log-money"
               onClick={() => openLog()}
-              className="rounded-full border border-ink/20 bg-white px-5 py-3 text-sm font-semibold text-ink"
+              className="min-h-11 rounded-full border border-ink/20 bg-white px-4 text-sm font-semibold text-ink hover:bg-paper-soft"
             >
               Log money
             </button>
@@ -290,12 +282,18 @@ export function HomeView({
               type="button"
               data-testid="home-add-loan"
               onClick={() => setAddLoanOpen(true)}
-              className="col-span-2 rounded-full border border-ink/20 bg-white px-5 py-3 text-sm font-semibold text-ink"
+              className="col-span-2 min-h-11 rounded-full border border-ink/20 bg-white px-4 text-sm font-semibold text-ink hover:bg-paper-soft sm:col-span-1"
             >
               Add loan
             </button>
           </div>
         </div>
+
+        <dl className="grid grid-cols-3 gap-2" aria-label="Net position">
+          <MiniStat label="Cash" value={phpSmart(cash)} warn={cash < 0} />
+          <MiniStat label="Tigum" value={phpSmart(tigum)} />
+          <MiniStat label="Utang" value={phpSmart(utang)} warn={utang > 0} />
+        </dl>
 
         {prompt ? (
           <TodayPromptCard
@@ -306,6 +304,15 @@ export function HomeView({
           />
         ) : null}
 
+        {payLines.length > 0 ? (
+          <PayPlanList
+            lines={payLines}
+            onPay={(line) => payPlanLine(line.id)}
+          />
+        ) : null}
+
+        <CriticalAlertsPanel alerts={alerts} onAction={onAlertAction} />
+
         {showRitual ? (
           <WeeklyRitualCard
             onDismiss={() => {
@@ -314,67 +321,77 @@ export function HomeView({
             }}
           />
         ) : null}
+        </div>
 
-        {payLines.length > 0 ? (
-          <PayPlanList
-            lines={payLines}
-            onPay={(line) => payPlanLine(line.id)}
-          />
-        ) : null}
-
+        <div className="min-w-0 space-y-5">
         <AffordThisMonthCard snap={afford} onLog={() => openLog()} />
         <MoneyNeededCard
           plan={beforePayday}
           onOpenSetup={() => onOpenMore("budget")}
           onPayBill={(lineId) => payPlanLine(lineId)}
         />
-        <CriticalAlertsPanel alerts={alerts} onAction={onAlertAction} />
+
+        {banks.length > 0 ? (
+          <div className="rounded-2xl border border-paper-line bg-white/80 p-4">
+            <div className="flex items-baseline justify-between gap-2">
+              <h2 className="font-display text-base font-semibold">Wallets</h2>
+              <p className="text-sm text-ink-muted">
+                Net position{" "}
+                <span className={`font-semibold ${worth < 0 ? "text-danger" : "text-ink"}`}>
+                  {phpSmart(worth)}
+                </span>
+              </p>
+            </div>
+            <ul className="mt-3 divide-y divide-paper-line rounded-xl border border-paper-line bg-white">
+              {banks.map((a) => (
+                <li key={a.id}>
+                  <button
+                    type="button"
+                    aria-haspopup="dialog"
+                    onClick={() => setWalletId(a.id)}
+                    data-testid="home-wallet"
+                    className="flex min-h-11 w-full items-baseline justify-between gap-3 px-3 py-2.5 text-left text-sm hover:bg-paper-soft/70"
+                  >
+                    <span className="min-w-0 truncate">{a.name}</span>
+                    <span className="shrink-0 font-display font-semibold">
+                      {phpSmart(balances[a.id] ?? 0)}
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+            <p className="mt-2 text-xs text-ink-muted">
+              Cash + tigum minus remaining utang. Tap a wallet to fix its balance.
+            </p>
+          </div>
+        ) : null}
+
+        <p className="text-xs text-ink-muted">
+          Sync:{" "}
+          <span className="font-semibold text-ink">
+            {syncMode === "cloud" ? "Cloud (Supabase)" : "This device only"}
+          </span>
+          {cloudError ? (
+            <span className="ml-2 text-danger" role="alert">
+              · {cloudError}
+            </span>
+          ) : null}
+        </p>
+        </div>
+        </div>
 
         <button
           type="button"
           onClick={() => setDetailsOpen((value) => !value)}
-          className="w-full rounded-2xl border border-paper-line bg-white/70 px-4 py-3 text-left text-sm font-semibold text-ink"
+          aria-expanded={detailsOpen}
+          className="flex min-h-11 w-full items-center justify-between rounded-2xl border border-paper-line bg-white/70 px-4 py-3 text-left text-sm font-semibold text-ink hover:bg-white"
         >
-          {detailsOpen ? "Hide more on this month" : "More on this month"}
+          {detailsOpen ? "Hide income & spending overview" : "Income & spending overview"}
+          <span aria-hidden>{detailsOpen ? "−" : "+"}</span>
         </button>
 
         {detailsOpen ? (
           <div className="space-y-6">
-            <div className="rounded-2xl border border-paper-line bg-white/70 p-5">
-              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-gold-deep">
-                Net position
-              </p>
-              <dl className="mt-4 space-y-2 text-sm">
-                <div className="flex justify-between gap-3">
-                  <dt className="text-ink-muted">Cash</dt>
-                  <dd className={`font-semibold ${cash < 0 ? "text-danger" : "text-ink"}`}>
-                    {phpSmart(cash)}
-                  </dd>
-                </div>
-                <div className="flex justify-between gap-3">
-                  <dt className="text-ink-muted">Tigum</dt>
-                  <dd className="font-semibold text-ink">{phpSmart(tigum)}</dd>
-                </div>
-                <div className="flex justify-between gap-3">
-                  <dt className="text-ink-muted">Utang</dt>
-                  <dd className={`font-semibold ${utang > 0 ? "text-danger" : "text-ink"}`}>
-                    {phpSmart(utang)}
-                  </dd>
-                </div>
-                <div className="flex justify-between gap-3 border-t border-paper-line pt-2">
-                  <dt className="font-medium text-ink">Net position</dt>
-                  <dd
-                    className={`font-display text-xl font-semibold ${worth < 0 ? "text-danger" : "text-ink"}`}
-                  >
-                    {phpSmart(worth)}
-                  </dd>
-                </div>
-              </dl>
-              <p className="mt-2 text-sm text-ink-muted">
-                Cash + tigum minus remaining utang.
-              </p>
-            </div>
-
             <div className="space-y-4">
               <div className="flex flex-wrap gap-2">
                 {(
@@ -463,28 +480,12 @@ export function HomeView({
               )}
             </div>
 
-            {banks.length > 0 ? (
-              <div>
-                <h2 className="font-display text-lg font-semibold">Accounts</h2>
-                <ul className="mt-3 grid gap-2 sm:grid-cols-2">
-                  {banks.map((a) => (
-                    <li
-                      key={a.id}
-                      className="flex items-baseline justify-between rounded-xl border border-paper-line bg-white/60 px-3 py-2 text-sm"
-                    >
-                      <span>{a.name}</span>
-                      <span className="font-display font-semibold">
-                        {phpSmart(balances[a.id] ?? 0)}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ) : null}
           </div>
         ) : null}
         </>
       ) : null}
+
+      <WalletPanel walletId={walletId} onClose={() => setWalletId(null)} />
 
       <AddLoanSheet
         open={addLoanOpen}
@@ -506,6 +507,17 @@ export function HomeView({
         onManageCategories={() => onOpenMore("budget")}
       />
     </section>
+  );
+}
+
+function MiniStat({ label, value, warn }: { label: string; value: string; warn?: boolean }) {
+  return (
+    <div className="min-w-0 rounded-xl border border-paper-line bg-white/80 px-3 py-2.5">
+      <dt className="text-xs font-semibold uppercase tracking-wide text-ink-muted">{label}</dt>
+      <dd className={`mt-0.5 truncate font-display text-base font-semibold sm:text-lg ${warn ? "text-danger" : "text-ink"}`}>
+        {value}
+      </dd>
+    </div>
   );
 }
 
