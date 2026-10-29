@@ -374,18 +374,11 @@ export function applyRemoveTransaction(state: AppState, id: string): AppState {
   if (tx.installmentId && tx.toId) {
     accounts = unpayInstallmentRow(accounts, tx.toId, tx.installmentId, tx.amount);
   }
-  let budgetLines = state.budgetLines;
-  if (tx.budgetLineId) {
-    budgetLines = budgetLines.map((line) =>
-      line.id === tx.budgetLineId && line.actual === tx.amount
-        ? { ...line, actual: null }
-        : line,
-    );
-  }
+  // Stored legacy actuals are never cleared here; budget spending is derived
+  // from transactions, so dropping the row is enough.
   const next: AppState = {
     ...state,
     accounts,
-    budgetLines,
     transactions: state.transactions.filter((t) => t.id !== id),
   };
   return syncBillStatus(next, [tx.budgetLineId]);

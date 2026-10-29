@@ -134,6 +134,15 @@ function normalizeBudgetLine(
     actual: line.actual ?? null,
     status: line.status ?? "unpaid",
     order: line.order ?? 0,
+    ...(line.lineType === "limit" ||
+    line.lineType === "bill" ||
+    line.lineType === "income"
+      ? { lineType: line.lineType }
+      : {}),
+    ...(line.categoryId ? { categoryId: line.categoryId } : {}),
+    ...(line.legacyReview === "kept" || line.legacyReview === "hidden"
+      ? { legacyReview: line.legacyReview }
+      : {}),
   };
 }
 

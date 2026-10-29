@@ -1,858 +1,724 @@
 "use client";
 
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useId, useMemo, useState } from "react";
 import { Modal } from "@/components/Modal";
 import { useFinance } from "@/context/FinanceContext";
-import { emptyCategory, emptyParticular } from "@/lib/defaults";
-import { phpSmart, uid } from "@/lib/money";
+import { parseAmount, phpSmart } from "@/lib/money";
 import {
-  availableBudgetYears,
-  computeBudgetSheet,
+  deriveBudget,
+  legacyEntriesToReview,
+  newBudgetRow,
+  nextRowOrder,
   periodLabel,
+  reconcileLegacyActuals,
+  saveBudgetRow,
   shortDue,
+  type BudgetCategoryRow,
+  type LegacyActualItem,
 } from "@/lib/periodBudget";
-import { findParticular } from "@/lib/refs";
-import type {
-  BudgetLine,
-  BudgetPeriod,
-  ParticularTone,
-} from "@/lib/types";
+import type { BudgetLine, BudgetLineType } from "@/lib/types";
 
-export function PeriodBudgetView({
-  title = "Budget",
-  year,
-  monthKey,
-  onYearChange,
-  showYearPicker = false,
-  showHeader = true,
-  showAddPeriod = true,
-}: {
-  title?: string;
-  year?: number;
-  monthKey?: string;
-  onYearChange?: (year: number) => void;
-  showYearPicker?: boolean;
-  showHeader?: boolean;
-  showAddPeriod?: boolean;
-}) {
-  const {
-    state,
-    upsertBudgetLine,
-    removeBudgetLine,
-    addBudgetLine,
-    upsertBudgetPeriod,
-    removeBudgetPeriod,
-    upsertParticular,
-    upsertCategory,
-  } = useFinance();
+const fieldClass =
+  "mt-1 w-full rounded-xl border border-paper-line bg-white px-3 py-2.5 text-base text-ink aria-[invalid=true]:border-danger";
 
-  const years = useMemo(
-    () => availableBudgetYears(state.budgetPeriods),
-    [state.budgetPeriods],
+/** "₱X left" or "₱X over": said in words, never by colour alone. */
+export function leftText(left: number): string {
+  return left < 0 ? `${phpSmart(-left)} over` : `${phpSmart(left)} left`;
+}
+
+type Editor =
+  | { kind: "limit"; row?: BudgetCategoryRow }
+  | { kind: "bill"; line?: BudgetLine }
+  | { kind: "income"; line?: BudgetLine };
+
+/**
+ * One budget: targets (limits, bills, expected income) with spending derived
+ * from Activity. Nothing here asks for amounts that already happened.
+ */
+export function PeriodBudgetView({ periodId }: { periodId: string }) {
+  const { state, updateState, removeBudgetLine, upsertBudgetPeriod, removeBudgetPeriod, reviewLegacyEntry } =
+    useFinance();
+  const budget = useMemo(() => deriveBudget(state, periodId), [state, periodId]);
+  const legacy = useMemo(() => legacyEntriesToReview(state, periodId), [state, periodId]);
+  const reconciledCount = useMemo(
+    () => reconcileLegacyActuals(state, periodId).filter((i) => i.status === "reconciled").length,
+    [state, periodId],
   );
-  const blocks = useMemo(
-    () => computeBudgetSheet(state, year, monthKey),
-    [state, year, monthKey],
-  );
-  const particulars = state.particulars;
-  const listId =
-    monthKey != null
-      ? `particular-options-${monthKey}`
-      : year != null
-        ? `particular-options-${year}`
-        : "particular-options";
+  const [editor, setEditor] = useState<Editor | null>(null);
+  const headingId = useId();
 
-  const [start, setStart] = useState("");
-  const [end, setEnd] = useState("");
-  const [createFor, setCreateFor] = useState<{
-    lineId: string;
-    name: string;
-  } | null>(null);
-  const [createName, setCreateName] = useState("");
-  const [createIsExpense, setCreateIsExpense] = useState(true);
-
-  function addPeriod(event: FormEvent) {
-    event.preventDefault();
-    if (!start || !end) return;
-    const period: BudgetPeriod = { id: uid(), start, end };
-    upsertBudgetPeriod(period);
-    addBudgetLine(period.id);
-    setStart("");
-    setEnd("");
-  }
-
-  function patchLine(line: BudgetLine, patch: Partial<BudgetLine>) {
-    upsertBudgetLine({ ...line, ...patch });
-  }
-
-  function lineFlow(
-    row: BudgetLine & { tone?: ParticularTone },
-  ): "income" | "expense" | null {
-    const hit = findParticular(particulars, {
-      id: row.particularId,
-      name: row.particular,
-    });
-    if (hit?.categoryId) {
-      const cat = state.categories.find((c) => c.id === hit.categoryId);
-      if (cat?.kind === "income" || cat?.kind === "expense") return cat.kind;
-    }
-    if (row.tone === "paycheck") return "income";
-    return null;
-  }
-
-  function isKnownParticular(name: string) {
-    return Boolean(findParticular(particulars, { name: name.trim() }));
-  }
-
-  function setParticular(row: BudgetLine, particular: string) {
-    const hit = findParticular(particulars, { name: particular });
-    const cat = hit?.categoryId
-      ? state.categories.find((c) => c.id === hit.categoryId)
-      : undefined;
-    const flow = cat?.kind ?? null;
-    patchLine(row, {
-      particular: hit?.name ?? particular,
-      particularId: hit?.id ?? null,
-      ...(flow === "income" ? { expense: 0 } : {}),
-      ...(flow === "expense" ? { income: 0 } : {}),
-    });
-  }
-
-  function openCreateParticular(row: BudgetLine, draft?: string) {
-    const name = (draft ?? row.particular).trim();
-    if (!name) return;
-    if (isKnownParticular(name)) {
-      setParticular(row, name);
-      return;
-    }
-    setCreateName(name);
-    setCreateIsExpense(true);
-    setCreateFor({ lineId: row.id, name });
-  }
-
-  function closeCreateParticular() {
-    setCreateFor(null);
-  }
-
-  function saveCreateParticular(event: FormEvent) {
-    event.preventDefault();
-    if (!createFor) return;
-    const name = createName.trim();
-    if (!name) return;
-
-    const existing = findParticular(particulars, { name });
-    const line = state.budgetLines.find((l) => l.id === createFor.lineId);
-    if (!line) {
-      closeCreateParticular();
-      return;
-    }
-
-    if (existing) {
-      setParticular(line, existing.name);
-      closeCreateParticular();
-      return;
-    }
-
-    const kind = createIsExpense ? "expense" : "income";
-    let category = state.categories.find((c) => c.kind === kind);
-    if (!category) {
-      category = emptyCategory(
-        kind === "income" ? "Income" : "Expense",
-        kind,
-        kind === "income" ? "paycheck" : "default",
-      );
-      upsertCategory(category);
-    }
-
-    const particular = emptyParticular(name, category.id);
-    upsertParticular(particular);
-    patchLine(line, {
-      particular: particular.name,
-      particularId: particular.id,
-      ...(kind === "income" ? { expense: 0 } : { income: 0 }),
-    });
-    closeCreateParticular();
-  }
-
-  const emptyMessage = (
-    <p className="sheet-empty">
-      No periods
-      {monthKey != null ? " for this month" : year != null ? ` for ${year}` : ""}{" "}
-      yet.
-      {showAddPeriod
-        ? " Copy last month from Budget, or add dates below."
-        : " Use Add dates above, or copy last month."}
-    </p>
-  );
+  if (!budget) return null;
+  const { period } = budget;
+  const lineById = (id: string) => state.budgetLines.find((l) => l.id === id);
 
   return (
-    <div className="space-y-4">
-      {showHeader ? (
-        <div className="flex flex-wrap items-end justify-between gap-3">
-          <div>
-            <h2 className="font-display text-lg font-semibold">{title}</h2>
+    <section
+      aria-labelledby={headingId}
+      className="space-y-4 rounded-2xl border border-paper-line bg-white/80 p-4"
+      data-testid="budget-active"
+    >
+      <h3 id={headingId} className="font-display text-lg font-semibold">
+        {budget.fullMonth ? "Monthly budget" : `Budget for ${periodLabel(period.start, period.end)}`}
+      </h3>
+
+      <dl className="grid grid-cols-3 gap-2" aria-live="polite">
+        <Stat label="Budget" value={phpSmart(budget.budget)} testId="budget-total" />
+        <Stat label="Spent" value={phpSmart(budget.spent)} testId="budget-spent" />
+        <Stat
+          label={budget.left < 0 ? "Over" : "Left"}
+          value={phpSmart(Math.abs(budget.left))}
+          testId="budget-left"
+          warn={budget.left < 0}
+        />
+      </dl>
+      <p className="text-sm text-ink-muted">
+        Spent comes from your Activity. Add an expense there and it shows up here.
+      </p>
+
+      {/* Categories */}
+      <div className="space-y-2">
+        <div className="flex items-center justify-between gap-2">
+          <h4 className="text-sm font-semibold uppercase tracking-wide text-ink-muted">
+            Spending by category
+          </h4>
+          <button
+            type="button"
+            onClick={() => setEditor({ kind: "limit" })}
+            className="rounded-full border border-ink/20 px-3 py-1.5 text-sm font-semibold"
+          >
+            Add category
+          </button>
+        </div>
+        {budget.categories.length === 0 ? (
+          <p className="text-sm text-ink-muted">No category limits yet.</p>
+        ) : (
+          <ul className="divide-y divide-paper-line rounded-xl border border-paper-line bg-white">
+            {budget.categories.map((row) => (
+              <li key={row.categoryId} className="space-y-2 px-3 py-3" data-testid="budget-category">
+                <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+                  <p className="font-semibold">{row.name}</p>
+                  <p
+                    className={`text-sm font-semibold ${row.left < 0 ? "text-danger" : "text-ink"}`}
+                    data-testid="budget-category-left"
+                  >
+                    {leftText(row.left)}
+                  </p>
+                </div>
+                <div className="h-2 overflow-hidden rounded-full bg-paper-soft" aria-hidden="true">
+                  <div
+                    className={`h-full ${row.left < 0 ? "bg-danger" : "bg-ok"}`}
+                    style={{
+                      width: `${row.limit > 0 ? Math.min(100, (row.spent / row.limit) * 100) : row.spent > 0 ? 100 : 0}%`,
+                    }}
+                  />
+                </div>
+                <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-ink-muted">
+                  <span>
+                    Limit {phpSmart(row.limit)} · Spent {phpSmart(row.spent)}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setEditor({ kind: "limit", row })}
+                    className="font-semibold text-ink underline-offset-2 hover:underline"
+                    aria-label={`Edit ${row.name} limit`}
+                  >
+                    Edit
+                  </button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+        {budget.unbudgeted.total > 0 ? (
+          <div className="rounded-xl border border-dashed border-paper-line bg-white px-3 py-3" data-testid="budget-unbudgeted">
+            <div className="flex flex-wrap items-baseline justify-between gap-2">
+              <p className="font-semibold">Unbudgeted spending</p>
+              <p className="text-sm font-semibold">{phpSmart(budget.unbudgeted.total)}</p>
+            </div>
             <p className="mt-1 text-sm text-ink-muted">
-              Plan vs real spending. Dates stay here if you need them later.
-              {monthKey != null
-                ? ` · ${monthKey}`
-                : year != null
-                  ? ` · ${year}`
-                  : ""}
+              Spending in categories without a limit:{" "}
+              {budget.unbudgeted.rows.map((r) => `${r.name} ${phpSmart(r.amount)}`).join(", ")}.
             </p>
           </div>
-          {showYearPicker && onYearChange ? (
-            <label className="text-xs text-ink-muted">
-              Year
-              <select
-                value={year}
-                onChange={(e) => onYearChange(Number(e.target.value))}
-                className="mt-1 block rounded-lg border border-paper-line bg-white px-2 py-1 text-sm text-ink"
-              >
-                {years.map((y) => (
-                  <option key={y} value={y}>
-                    {y}
-                  </option>
-                ))}
-              </select>
-            </label>
+        ) : null}
+      </div>
+
+      {/* Bills */}
+      <div className="space-y-2">
+        <div className="flex items-center justify-between gap-2">
+          <h4 className="text-sm font-semibold uppercase tracking-wide text-ink-muted">
+            Planned bills
+          </h4>
+          <button
+            type="button"
+            onClick={() => setEditor({ kind: "bill" })}
+            className="rounded-full border border-ink/20 px-3 py-1.5 text-sm font-semibold"
+          >
+            Add bill
+          </button>
+        </div>
+        {budget.bills.length === 0 ? (
+          <p className="text-sm text-ink-muted">No planned bills.</p>
+        ) : (
+          <>
+            <ul className="divide-y divide-paper-line rounded-xl border border-paper-line bg-white">
+              {budget.bills.map((bill) => (
+                <li key={bill.lineId} className="flex flex-wrap items-center justify-between gap-2 px-3 py-3">
+                  <div className="min-w-0">
+                    <p className="font-semibold">{bill.name}</p>
+                    <p className="text-sm text-ink-muted">
+                      {bill.due ? `Due ${shortDue(bill.due)} · ` : ""}
+                      {phpSmart(bill.amount)}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <span
+                      className={`rounded-full px-2.5 py-1 text-xs font-semibold ${
+                        bill.paid ? "bg-ok/15 text-ink" : "bg-paper-soft text-ink-muted"
+                      }`}
+                    >
+                      {bill.paid ? `Paid ${phpSmart(bill.paidAmount)}` : "Not paid yet"}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const line = lineById(bill.lineId);
+                        if (line) setEditor({ kind: "bill", line });
+                      }}
+                      className="text-sm font-semibold underline-offset-2 hover:underline"
+                      aria-label={`Edit bill ${bill.name}`}
+                    >
+                      Edit
+                    </button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+            <p className="text-xs text-ink-muted">
+              A bill shows as paid when you add the expense in Activity and choose this bill.
+            </p>
+          </>
+        )}
+      </div>
+
+      {/* Income */}
+      <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-paper-line bg-white px-3 py-3">
+        <div>
+          <p className="font-semibold">Expected income</p>
+          <p className="text-sm text-ink-muted">
+            {budget.income.length
+              ? `${phpSmart(budget.expectedIncome)} expected · ${phpSmart(budget.incomeReceived)} received`
+              : `Not set · ${phpSmart(budget.incomeReceived)} received`}
+          </p>
+          {budget.income.length > 1 ? (
+            <ul className="mt-1 text-sm text-ink-muted">
+              {budget.income.map((i) => (
+                <li key={i.lineId}>
+                  {i.name}: {phpSmart(i.amount)}{" "}
+                  <button
+                    type="button"
+                    className="font-semibold text-ink underline-offset-2 hover:underline"
+                    onClick={() => {
+                      const line = lineById(i.lineId);
+                      if (line) setEditor({ kind: "income", line });
+                    }}
+                    aria-label={`Edit expected income ${i.name}`}
+                  >
+                    Edit
+                  </button>
+                </li>
+              ))}
+            </ul>
           ) : null}
         </div>
+        {budget.income.length <= 1 ? (
+          <button
+            type="button"
+            onClick={() =>
+              setEditor({
+                kind: "income",
+                line: budget.income[0] ? lineById(budget.income[0].lineId) : undefined,
+              })
+            }
+            className="rounded-full border border-ink/20 px-3 py-1.5 text-sm font-semibold"
+          >
+            {budget.income.length ? "Edit" : "Add"}
+            <span className="sr-only"> expected income</span>
+          </button>
+        ) : null}
+      </div>
+
+      {/* Repayments + cash out */}
+      <div className="space-y-2 rounded-xl border border-paper-line bg-white px-3 py-3 text-sm">
+        <div className="flex flex-wrap justify-between gap-2" data-testid="budget-repayments">
+          <p className="font-semibold">Loan &amp; card repayments</p>
+          <p className="font-semibold">{phpSmart(budget.repayments.total)}</p>
+        </div>
+        <p className="text-ink-muted">
+          Paying a loan or card is not new spending, so it is not in Spent. Things you bought on
+          credit already count when you bought them.
+        </p>
+        <div className="flex flex-wrap justify-between gap-2 border-t border-paper-line pt-2">
+          <p className="font-semibold">Total cash out</p>
+          <p className="font-semibold" data-testid="budget-cash-out">
+            {phpSmart(budget.cashOut)}
+          </p>
+        </div>
+        <p className="text-ink-muted">Spent plus repayments, each counted once.</p>
+      </div>
+
+      {legacy.length > 0 ? (
+        <LegacySection items={legacy} onReview={reviewLegacyEntry} reconciledCount={reconciledCount} />
       ) : null}
 
-      <datalist id={listId}>
-        {particulars.map((p) => (
-          <option key={p.id} value={p.name} />
-        ))}
-      </datalist>
+      <AdvancedOptions
+        start={period.start}
+        end={period.end}
+        onSaveDates={(start, end) => upsertBudgetPeriod({ ...period, start, end })}
+        onDelete={() => {
+          const note = legacy.length
+            ? " Earlier manual entries saved in it are removed too; export a backup first if you want to keep them."
+            : "";
+          if (window.confirm(`Delete this budget? Your Activity stays as it is.${note}`)) {
+            removeBudgetPeriod(period.id);
+          }
+        }}
+      />
 
-      <Modal
-        open={createFor != null}
-        title="Create particular"
-        onClose={closeCreateParticular}
+      <RowEditor
+        key={editorKey(editor)}
+        editor={editor}
+        periodStart={period.start}
+        periodEnd={period.end}
+        existingCategoryIds={budget.categories.map((c) => c.categoryId)}
+        onClose={() => setEditor(null)}
+        onSave={(line, removeIds) => {
+          updateState((prev) => {
+            let next = saveBudgetRow(prev, {
+              ...line,
+              order: prev.budgetLines.some((l) => l.id === line.id)
+                ? line.order
+                : nextRowOrder(prev, period.id),
+            });
+            if (removeIds.length) {
+              next = { ...next, budgetLines: next.budgetLines.filter((l) => !removeIds.includes(l.id)) };
+            }
+            return next;
+          });
+          setEditor(null);
+        }}
+        onRemove={(ids) => {
+          for (const id of ids) removeBudgetLine(id);
+          setEditor(null);
+        }}
+        periodId={period.id}
+      />
+    </section>
+  );
+}
+
+function editorKey(editor: Editor | null): string {
+  if (!editor) return "closed";
+  if (editor.kind === "limit") return `limit-${editor.row?.categoryId ?? "new"}`;
+  return `${editor.kind}-${editor.line?.id ?? "new"}`;
+}
+
+function Stat({
+  label,
+  value,
+  testId,
+  warn,
+}: {
+  label: string;
+  value: string;
+  testId: string;
+  warn?: boolean;
+}) {
+  return (
+    <div className="min-w-0 rounded-xl border border-paper-line bg-white px-2.5 py-2.5">
+      <dt className="text-xs font-semibold uppercase tracking-wide text-ink-muted">{label}</dt>
+      <dd
+        className={`mt-0.5 break-words font-display text-base font-semibold sm:text-lg ${warn ? "text-danger" : ""}`}
+        data-testid={testId}
       >
-        <form onSubmit={saveCreateParticular} className="space-y-4">
-          <p className="text-sm text-ink-muted">
-            Saves under More so you can reuse it in Activity and Budget.
-          </p>
-          <label className="block text-xs font-semibold uppercase tracking-wide text-ink-muted">
-            Particular
-            <input
-              value={createName}
-              onChange={(e) => setCreateName(e.target.value)}
-              placeholder="e.g. WATER, LOAD, MEDICINE"
-              className="mt-1.5 w-full rounded-xl border border-paper-line bg-white px-3 py-2.5 text-base font-normal text-ink"
-              required
-              autoFocus
-            />
-          </label>
-          <fieldset className="space-y-2">
-            <legend className="text-xs font-semibold uppercase tracking-wide text-ink-muted">
-              Type
-            </legend>
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                type="button"
-                onClick={() => setCreateIsExpense(true)}
-                className={`rounded-xl border px-3 py-2.5 text-sm font-semibold ${
-                  createIsExpense
-                    ? "border-ink bg-ink text-paper"
-                    : "border-paper-line bg-white text-ink"
-                }`}
-              >
-                Expense
-              </button>
-              <button
-                type="button"
-                onClick={() => setCreateIsExpense(false)}
-                className={`rounded-xl border px-3 py-2.5 text-sm font-semibold ${
-                  !createIsExpense
-                    ? "border-ink bg-ink text-paper"
-                    : "border-paper-line bg-white text-ink"
-                }`}
-              >
-                Income
-              </button>
-            </div>
-          </fieldset>
-          <button
-            type="submit"
-            className="w-full rounded-full bg-ink py-3 text-base font-semibold text-paper"
-          >
-            Save particular
-          </button>
-        </form>
-      </Modal>
-
-      {blocks.length === 0 ? (
-        emptyMessage
-      ) : (
-        <>
-          {/* Mobile cards */}
-          <div className="space-y-5 md:hidden">
-            {blocks.map((block) => (
-              <section
-                key={block.period.id}
-                className="overflow-hidden rounded-2xl border border-paper-line bg-white/80"
-              >
-                <div className="border-b border-paper-line bg-gradient-to-b from-paper-soft to-white px-4 py-4">
-                  <p className="font-display text-lg font-semibold tracking-tight">
-                    {block.label}
-                  </p>
-                  <div className="mt-3 grid grid-cols-2 gap-3">
-                    <label className="text-xs font-medium text-ink-muted">
-                      Start
-                      <input
-                        type="date"
-                        value={block.period.start}
-                        onChange={(e) =>
-                          upsertBudgetPeriod({
-                            ...block.period,
-                            start: e.target.value,
-                          })
-                        }
-                        className="mt-1 w-full rounded-xl border border-paper-line bg-white px-3 py-2.5 text-base text-ink"
-                      />
-                    </label>
-                    <label className="text-xs font-medium text-ink-muted">
-                      End
-                      <input
-                        type="date"
-                        value={block.period.end}
-                        onChange={(e) =>
-                          upsertBudgetPeriod({
-                            ...block.period,
-                            end: e.target.value,
-                          })
-                        }
-                        className="mt-1 w-full rounded-xl border border-paper-line bg-white px-3 py-2.5 text-base text-ink"
-                      />
-                    </label>
-                  </div>
-                  <p className="mt-3 text-sm text-ink-muted">
-                    Close · budget{" "}
-                    <span className="font-semibold text-ink">
-                      {phpSmart(block.closingBudget)}
-                    </span>{" "}
-                    · actual{" "}
-                    <span className="font-semibold text-ink">
-                      {phpSmart(block.closingActual)}
-                    </span>
-                  </p>
-                  <button
-                    type="button"
-                    className="mt-3 text-sm font-semibold text-danger"
-                    onClick={() => {
-                      if (
-                        window.confirm(
-                          `Remove period ${block.label} and all its lines?`,
-                        )
-                      ) {
-                        removeBudgetPeriod(block.period.id);
-                      }
-                    }}
-                  >
-                    Remove period
-                  </button>
-                </div>
-
-                {block.lines.length === 0 ? (
-                  <p className="px-4 py-6 text-center text-sm text-ink-muted">
-                    No lines in this period.
-                  </p>
-                ) : (
-                  <ul className="divide-y divide-paper-line">
-                    {block.lines.map((row) => (
-                      <li
-                        key={row.id}
-                        className={`space-y-3 px-4 py-3 tone-${row.tone}`}
-                      >
-                        <div className="flex items-start justify-between gap-2">
-                          <ParticularCell
-                            listId={listId}
-                            value={row.particular}
-                            tone={row.tone}
-                            known={isKnownParticular(row.particular)}
-                            onChange={(particular) =>
-                              setParticular(row, particular)
-                            }
-                            onCreate={() => openCreateParticular(row)}
-                          />
-                          <button
-                            type="button"
-                            className="shrink-0 text-sm font-semibold text-ink-muted hover:text-danger"
-                            onClick={() => {
-                              if (window.confirm("Remove this line?")) {
-                                removeBudgetLine(row.id);
-                              }
-                            }}
-                          >
-                            Remove
-                          </button>
-                        </div>
-
-                        <label className="block text-xs text-ink-muted">
-                          Due
-                          <input
-                            type="date"
-                            value={row.due}
-                            onChange={(e) =>
-                              patchLine(row, { due: e.target.value })
-                            }
-                            className="mt-1 w-full rounded-xl border border-paper-line bg-white px-3 py-2.5 text-base text-ink"
-                          />
-                        </label>
-
-                        {(() => {
-                          const flow = lineFlow(row);
-                          if (flow === "income") {
-                            return (
-                              <div className="grid grid-cols-2 gap-3">
-                                <label className="block rounded-2xl border border-paper-line bg-white/90 p-3 text-xs text-ink-muted">
-                                  Budget in
-                                  <div className="mt-1.5 rounded-xl border border-paper-line bg-paper/50 px-2.5 py-2">
-                                    <NumInput
-                                      value={row.income}
-                                      blankZero
-                                      onChange={(income) =>
-                                        patchLine(row, {
-                                          income: income ?? 0,
-                                          expense: 0,
-                                        })
-                                      }
-                                    />
-                                  </div>
-                                </label>
-                                <label className="block rounded-2xl border border-paper-line bg-white/90 p-3 text-xs text-ink-muted">
-                                  Actual in
-                                  <div className="mt-1.5 rounded-xl border border-paper-line bg-paper/50 px-2.5 py-2">
-                                    <NumInput
-                                      value={row.actual}
-                                      nullable
-                                      onChange={(actual) =>
-                                        patchLine(row, { actual })
-                                      }
-                                    />
-                                  </div>
-                                </label>
-                              </div>
-                            );
-                          }
-                          if (flow === "expense") {
-                            return (
-                              <div className="grid grid-cols-2 gap-3">
-                                <label className="block rounded-2xl border border-paper-line bg-white/90 p-3 text-xs text-ink-muted">
-                                  Budget out
-                                  <div className="mt-1.5 rounded-xl border border-paper-line bg-paper/50 px-2.5 py-2">
-                                    <NumInput
-                                      value={row.expense}
-                                      blankZero
-                                      onChange={(expense) =>
-                                        patchLine(row, {
-                                          expense: expense ?? 0,
-                                          income: 0,
-                                        })
-                                      }
-                                    />
-                                  </div>
-                                </label>
-                                <label className="block rounded-2xl border border-paper-line bg-white/90 p-3 text-xs text-ink-muted">
-                                  Actual out
-                                  <div className="mt-1.5 rounded-xl border border-paper-line bg-paper/50 px-2.5 py-2">
-                                    <NumInput
-                                      value={row.actual}
-                                      nullable
-                                      onChange={(actual) =>
-                                        patchLine(row, { actual })
-                                      }
-                                    />
-                                  </div>
-                                </label>
-                              </div>
-                            );
-                          }
-                          return (
-                            <div className="space-y-2 rounded-2xl border border-dashed border-paper-line bg-white/60 p-3">
-                              <p className="text-sm text-ink-muted">
-                                Choose an income or expense particular above to
-                                show Budget / Actual fields.
-                              </p>
-                            </div>
-                          );
-                        })()}
-                        <div className="flex justify-between text-sm text-ink-muted">
-                          <span>
-                            Budget bal{" "}
-                            <span className="font-semibold text-ink">
-                              {phpSmart(row.budgetBalance)}
-                            </span>
-                          </span>
-                          <span>
-                            Actual bal{" "}
-                            <span className="font-semibold text-ink">
-                              {phpSmart(row.remBalance)}
-                            </span>
-                          </span>
-                        </div>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-
-                <div className="border-t border-paper-line px-4 py-3">
-                  <button
-                    type="button"
-                    className="w-full rounded-full border border-ink/15 bg-white py-3 text-base font-semibold text-ink"
-                    onClick={() => addBudgetLine(block.period.id)}
-                  >
-                    + Add line
-                  </button>
-                </div>
-              </section>
-            ))}
-          </div>
-
-          {/* Desktop spreadsheet */}
-          <div className="budget-sheet-wrap hidden md:block">
-            <table className="budget-sheet">
-              <thead>
-                <tr className="group-head">
-                  <th rowSpan={2}>Period</th>
-                  <th rowSpan={2}>Actual due</th>
-                  <th rowSpan={2}>Particular</th>
-                  <th colSpan={3} className="group">
-                    Budget
-                  </th>
-                  <th colSpan={2} className="group">
-                    Actual
-                  </th>
-                  <th rowSpan={2} />
-                </tr>
-                <tr className="sub-head">
-                  <th className="num">Income</th>
-                  <th className="num">Expenses</th>
-                  <th className="num">Balance</th>
-                  <th className="num">Amount</th>
-                  <th className="num">Rem. balance</th>
-                </tr>
-              </thead>
-              {blocks.map((block, blockIndex) => (
-                <tbody key={block.period.id} className="period-block">
-                  {block.lines.length === 0 ? (
-                    <tr>
-                      <td className="period-cell">{block.label}</td>
-                      <td colSpan={7} className="empty-cell">
-                        No lines in this period.
-                      </td>
-                      <td>
-                        <button
-                          type="button"
-                          onClick={() => addBudgetLine(block.period.id)}
-                          className="link-btn"
-                        >
-                          Add line
-                        </button>
-                      </td>
-                    </tr>
-                  ) : (
-                    block.lines.map((row, rowIndex) => (
-                      <tr key={row.id} className={`tone-${row.tone}`}>
-                        {rowIndex === 0 ? (
-                          <td
-                            className="period-cell"
-                            rowSpan={block.lines.length}
-                          >
-                            <div className="period-label">{block.label}</div>
-                            <div className="mt-2 flex flex-col gap-1">
-                              <label className="muted">
-                                Start
-                                <input
-                                  type="date"
-                                  value={block.period.start}
-                                  onChange={(e) =>
-                                    upsertBudgetPeriod({
-                                      ...block.period,
-                                      start: e.target.value,
-                                    })
-                                  }
-                                  className="cell-input mt-0.5"
-                                />
-                              </label>
-                              <label className="muted">
-                                End
-                                <input
-                                  type="date"
-                                  value={block.period.end}
-                                  onChange={(e) =>
-                                    upsertBudgetPeriod({
-                                      ...block.period,
-                                      end: e.target.value,
-                                    })
-                                  }
-                                  className="cell-input mt-0.5"
-                                />
-                              </label>
-                            </div>
-                            <button
-                              type="button"
-                              className="link-btn danger"
-                              onClick={() => {
-                                if (
-                                  window.confirm(
-                                    `Remove period ${block.label} and all its lines?`,
-                                  )
-                                ) {
-                                  removeBudgetPeriod(block.period.id);
-                                }
-                              }}
-                            >
-                              Remove period
-                            </button>
-                          </td>
-                        ) : null}
-                        <td>
-                          <input
-                            type="date"
-                            value={row.due}
-                            onChange={(e) =>
-                              patchLine(row, { due: e.target.value })
-                            }
-                            className="cell-input"
-                            title={row.due ? shortDue(row.due) : ""}
-                          />
-                        </td>
-                        <td>
-                          <ParticularCell
-                            listId={listId}
-                            value={row.particular}
-                            tone={row.tone}
-                            known={isKnownParticular(row.particular)}
-                            onChange={(particular) =>
-                              setParticular(row, particular)
-                            }
-                            onCreate={() => openCreateParticular(row)}
-                          />
-                        </td>
-                        <td className="num">
-                          {lineFlow(row) === "expense" ? (
-                            <span className="text-ink-muted">—</span>
-                          ) : (
-                            <NumInput
-                              value={row.income}
-                              blankZero
-                              onChange={(income) =>
-                                patchLine(row, {
-                                  income: income ?? 0,
-                                  expense: 0,
-                                })
-                              }
-                            />
-                          )}
-                        </td>
-                        <td className="num">
-                          {lineFlow(row) === "income" ? (
-                            <span className="text-ink-muted">—</span>
-                          ) : (
-                            <NumInput
-                              value={row.expense}
-                              blankZero
-                              onChange={(expense) =>
-                                patchLine(row, {
-                                  expense: expense ?? 0,
-                                  income: 0,
-                                })
-                              }
-                            />
-                          )}
-                        </td>
-                        <td className="num balance">
-                          {phpSmart(row.budgetBalance)}
-                        </td>
-                        <td className="num">
-                          <NumInput
-                            value={row.actual}
-                            nullable
-                            onChange={(actual) => patchLine(row, { actual })}
-                          />
-                        </td>
-                        <td className="num balance">
-                          {phpSmart(row.remBalance)}
-                        </td>
-                        <td className="actions">
-                          <button
-                            type="button"
-                            className="link-btn danger"
-                            onClick={() => {
-                              if (window.confirm("Remove this line?")) {
-                                removeBudgetLine(row.id);
-                              }
-                            }}
-                          >
-                            ×
-                          </button>
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                  <tr className="period-foot">
-                    <td colSpan={5}>
-                      {blockIndex === blocks.length - 1 ? (
-                        <button
-                          type="button"
-                          className="link-btn"
-                          onClick={() => addBudgetLine(block.period.id)}
-                        >
-                          + Add line to {block.label}
-                        </button>
-                      ) : (
-                        <span className="muted">
-                          Closes at {phpSmart(block.closingBudget)} budget ·{" "}
-                          {phpSmart(block.closingActual)} actual
-                        </span>
-                      )}
-                    </td>
-                    <td className="num balance">
-                      {phpSmart(block.closingBudget)}
-                    </td>
-                    <td />
-                    <td className="num balance">
-                      {phpSmart(block.closingActual)}
-                    </td>
-                    <td>
-                      {blockIndex === blocks.length - 1 ? null : (
-                        <button
-                          type="button"
-                          className="link-btn"
-                          onClick={() => addBudgetLine(block.period.id)}
-                        >
-                          + Line
-                        </button>
-                      )}
-                    </td>
-                  </tr>
-                </tbody>
-              ))}
-            </table>
-          </div>
-        </>
-      )}
-
-      {showAddPeriod ? (
-        <form
-          onSubmit={addPeriod}
-          className="space-y-3 rounded-2xl border border-dashed border-paper-line p-4"
-        >
-          <h3 className="font-display text-base font-semibold">
-            Add a pay period
-          </h3>
-          <p className="text-xs text-ink-muted">
-            Example: Oct 25 → Oct 31 becomes{" "}
-            {start && end ? periodLabel(start, end) : "OCT 25 - OCT 31"}.
-          </p>
-          <div className="grid grid-cols-2 gap-2">
-            <label className="block text-xs text-ink-muted">
-              Start
-              <input
-                type="date"
-                value={start}
-                onChange={(e) => setStart(e.target.value)}
-                className="mt-1 w-full rounded-xl border border-paper-line px-3 py-2 text-sm text-ink"
-                required
-              />
-            </label>
-            <label className="block text-xs text-ink-muted">
-              End
-              <input
-                type="date"
-                value={end}
-                onChange={(e) => setEnd(e.target.value)}
-                className="mt-1 w-full rounded-xl border border-paper-line px-3 py-2 text-sm text-ink"
-                required
-              />
-            </label>
-          </div>
-          <button
-            type="submit"
-            className="rounded-full border border-ink/20 px-4 py-2 text-sm font-semibold"
-          >
-            Add period
-          </button>
-        </form>
-      ) : null}
+        {value}
+      </dd>
     </div>
   );
 }
 
-function ParticularCell({
-  listId,
-  value,
-  tone,
-  known,
-  onChange,
-  onCreate,
+function LegacySection({
+  items,
+  reconciledCount,
+  onReview,
 }: {
-  listId: string;
-  value: string;
-  tone: ParticularTone;
-  known: boolean;
-  onChange: (v: string) => void;
-  onCreate: () => void;
+  items: LegacyActualItem[];
+  reconciledCount: number;
+  onReview: (lineId: string, review: "kept" | "hidden" | null) => void;
 }) {
-  const trimmed = value.trim();
-  const showCreate = trimmed.length > 0 && !known;
-
+  const [showHidden, setShowHidden] = useState(false);
+  const visible = items.filter((i) => showHidden || i.review !== "hidden");
+  const hiddenCount = items.filter((i) => i.review === "hidden").length;
+  const headingId = useId();
   return (
-    <div className="w-full min-w-0">
-      <div className={`particular-chip tone-${tone} w-full`}>
-        <input
-          list={listId}
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          placeholder="Particular"
-          className="particular-input"
-        />
-      </div>
-      {showCreate ? (
+    <section
+      aria-labelledby={headingId}
+      className="space-y-2 rounded-xl border border-gold-line bg-gold-soft/30 px-3 py-3"
+      data-testid="budget-legacy"
+    >
+      <h4 id={headingId} className="font-semibold">
+        Earlier manual entries (not from your activity)
+      </h4>
+      <p className="text-sm text-ink-muted">
+        These amounts were typed in by hand before spending came from Activity. They are kept as
+        they were but are not added to Spent. Keep each as a note or hide it.
+        {reconciledCount
+          ? ` ${reconciledCount} other earlier ${reconciledCount === 1 ? "entry matches" : "entries match"} linked activity and needs nothing.`
+          : ""}
+      </p>
+      {visible.length === 0 ? (
+        <p className="text-sm text-ink-muted">All earlier entries here are hidden.</p>
+      ) : (
+        <ul className="divide-y divide-paper-line rounded-lg border border-paper-line bg-white">
+          {visible.map((item) => (
+            <li key={item.lineId} className="space-y-2 px-3 py-3">
+              <div className="flex flex-wrap items-baseline justify-between gap-2">
+                <p className="font-semibold">{item.name}</p>
+                <p className="text-sm font-semibold">Typed {phpSmart(item.actual)}</p>
+              </div>
+              <p className="text-sm text-ink-muted">
+                {item.due ? `Dated ${shortDue(item.due)}. ` : ""}
+                {item.status === "mismatch"
+                  ? `Linked activity adds up to ${phpSmart(item.linkedTotal)}, not the typed amount.`
+                  : "No activity is linked to it."}
+                {item.review === "kept" ? " Kept as a note." : ""}
+                {item.review === "hidden" ? " Hidden." : ""}
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {item.review === "kept" ? null : (
+                  <button
+                    type="button"
+                    onClick={() => onReview(item.lineId, "kept")}
+                    className="rounded-full border border-ink/20 px-3 py-1.5 text-sm font-semibold"
+                  >
+                    Keep as note
+                  </button>
+                )}
+                {item.review === "hidden" ? (
+                  <button
+                    type="button"
+                    onClick={() => onReview(item.lineId, null)}
+                    className="rounded-full border border-ink/20 px-3 py-1.5 text-sm font-semibold"
+                  >
+                    Show again
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => onReview(item.lineId, "hidden")}
+                    className="rounded-full border border-ink/20 px-3 py-1.5 text-sm font-semibold"
+                  >
+                    Hide
+                  </button>
+                )}
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+      {hiddenCount > 0 ? (
         <button
           type="button"
-          onClick={onCreate}
-          className="mt-1 text-xs font-semibold text-gold-deep underline-offset-2 hover:underline"
+          onClick={() => setShowHidden((v) => !v)}
+          aria-expanded={showHidden}
+          className="text-sm font-semibold underline-offset-2 hover:underline"
         >
-          Create “{trimmed}” · save to setup
+          {showHidden ? "Hide hidden entries" : `Show hidden entries (${hiddenCount})`}
         </button>
       ) : null}
-    </div>
+    </section>
   );
 }
 
-function NumInput({
-  value,
-  onChange,
-  blankZero,
-  nullable,
+function AdvancedOptions({
+  start,
+  end,
+  onSaveDates,
+  onDelete,
 }: {
-  value: number | null;
-  onChange: (n: number | null) => void;
-  blankZero?: boolean;
-  nullable?: boolean;
+  start: string;
+  end: string;
+  onSaveDates: (start: string, end: string) => void;
+  onDelete: () => void;
 }) {
-  const display =
-    value == null ? "" : blankZero && value === 0 ? "" : String(value);
+  const [from, setFrom] = useState(start);
+  const [to, setTo] = useState(end);
+  const [error, setError] = useState("");
+  const [saved, setSaved] = useState("");
+  const errorId = useId();
+
+  function save(event: FormEvent) {
+    event.preventDefault();
+    setSaved("");
+    if (!from || !to) return setError("Choose a start and end date.");
+    if (to < from) return setError("The end date must be on or after the start date.");
+    setError("");
+    onSaveDates(from, to);
+    setSaved("Dates saved.");
+  }
 
   return (
-    <input
-      inputMode="decimal"
-      value={display}
-      placeholder=""
-      onChange={(e) => {
-        const raw = e.target.value.trim();
-        if (raw === "") {
-          onChange(nullable ? null : 0);
-          return;
+    <details className="rounded-xl border border-paper-line bg-white px-3 py-2">
+      <summary className="cursor-pointer py-1 text-sm font-semibold">Advanced options</summary>
+      <form onSubmit={save} className="mt-2 space-y-3" noValidate>
+        <p className="text-sm text-ink-muted">
+          Budgets follow the calendar month. Change the dates only if you budget by paycheck.
+        </p>
+        <div className="grid grid-cols-1 gap-3 min-[360px]:grid-cols-2">
+          <label className="block text-sm text-ink-muted">
+            Start date
+            <input
+              type="date"
+              value={from}
+              onChange={(e) => setFrom(e.target.value)}
+              className={fieldClass}
+              aria-invalid={Boolean(error)}
+              aria-describedby={error ? errorId : undefined}
+            />
+          </label>
+          <label className="block text-sm text-ink-muted">
+            End date
+            <input
+              type="date"
+              value={to}
+              onChange={(e) => setTo(e.target.value)}
+              className={fieldClass}
+              aria-invalid={Boolean(error)}
+              aria-describedby={error ? errorId : undefined}
+            />
+          </label>
+        </div>
+        {error ? (
+          <p id={errorId} role="alert" className="text-sm text-danger">
+            {error}
+          </p>
+        ) : null}
+        <p role="status" className="text-sm text-ink-muted">
+          {saved}
+        </p>
+        <div className="flex flex-wrap gap-2">
+          <button type="submit" className="rounded-full border border-ink/20 px-4 py-2 text-sm font-semibold">
+            Save dates
+          </button>
+          <button
+            type="button"
+            onClick={onDelete}
+            className="rounded-full border border-danger/30 px-4 py-2 text-sm font-semibold text-danger"
+          >
+            Delete this budget
+          </button>
+        </div>
+      </form>
+    </details>
+  );
+}
+
+function RowEditor({
+  editor,
+  periodId,
+  periodStart,
+  periodEnd,
+  existingCategoryIds,
+  onClose,
+  onSave,
+  onRemove,
+}: {
+  editor: Editor | null;
+  periodId: string;
+  periodStart: string;
+  periodEnd: string;
+  existingCategoryIds: string[];
+  onClose: () => void;
+  onSave: (line: BudgetLine, removeIds: string[]) => void;
+  onRemove: (ids: string[]) => void;
+}) {
+  const { state } = useFinance();
+  const kind: BudgetLineType = editor?.kind ?? "limit";
+  const editingLimit = editor?.kind === "limit" ? editor.row : undefined;
+  const editingLine = editor && editor.kind !== "limit" ? editor.line : undefined;
+  const firstLimitLine = editingLimit
+    ? state.budgetLines.find((l) => l.id === editingLimit.lineIds[0])
+    : undefined;
+
+  const [categoryId, setCategoryId] = useState(editingLimit?.categoryId ?? "");
+  const [name, setName] = useState(editingLine?.particular ?? "");
+  const [due, setDue] = useState(editingLine?.due ?? "");
+  const [amount, setAmount] = useState(() => {
+    const n = editingLimit
+      ? editingLimit.limit
+      : kind === "income"
+        ? editingLine?.income
+        : editingLine?.expense;
+    return n ? String(n) : "";
+  });
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const ids = useId();
+
+  const categories = state.categories.filter((c) => (c.kind ?? "expense") !== "income");
+  const isEdit = Boolean(editingLimit || editingLine);
+  const title =
+    kind === "limit"
+      ? isEdit
+        ? `Edit ${editingLimit?.name ?? "category"}`
+        : "Add a category"
+      : kind === "bill"
+        ? isEdit
+          ? "Edit bill"
+          : "Add a bill"
+        : "Expected income";
+
+  function submit(event: FormEvent) {
+    event.preventDefault();
+    const next: Record<string, string> = {};
+    const parsed = parseAmount(amount);
+    if (!parsed.ok) next.amount = parsed.error;
+    if (kind === "limit" && !editingLimit) {
+      if (!categoryId) next.category = "Choose a category.";
+      else if (existingCategoryIds.includes(categoryId)) {
+        next.category = "This category is already in the budget.";
+      }
+    }
+    if (kind === "bill") {
+      if (!name.trim()) next.name = "Name the bill.";
+      if (!due) next.due = "Choose a due date.";
+      else if (due < periodStart || due > periodEnd) next.due = "Pick a date inside this budget.";
+    }
+    setErrors(next);
+    if (Object.keys(next).length || !parsed.ok) return;
+
+    const value = parsed.value;
+    if (kind === "limit") {
+      const catId = editingLimit?.categoryId ?? categoryId;
+      const catName = state.categories.find((c) => c.id === catId)?.name ?? "";
+      const base =
+        firstLimitLine ??
+        newBudgetRow(periodId, 0, { lineType: "limit", categoryId: catId, particular: catName });
+      onSave(
+        { ...base, lineType: "limit", categoryId: catId, expense: value, income: 0 },
+        editingLimit ? editingLimit.lineIds.slice(1) : [],
+      );
+    } else if (kind === "bill") {
+      const base = editingLine ?? newBudgetRow(periodId, 0, { lineType: "bill" });
+      onSave({ ...base, particular: name.trim(), due, expense: value, income: 0 }, []);
+    } else {
+      const base =
+        editingLine ?? newBudgetRow(periodId, 0, { lineType: "income", particular: "Expected income" });
+      onSave({ ...base, income: value, expense: 0 }, []);
+    }
+  }
+
+  function remove() {
+    const removeIds = editingLimit ? editingLimit.lineIds : editingLine ? [editingLine.id] : [];
+    if (!removeIds.length) return;
+    const linked =
+      kind === "bill" && state.transactions.some((t) => t.budgetLineId === editingLine?.id);
+    const msg = linked
+      ? "Remove this bill? Expenses linked to it stay in Activity and count by category."
+      : "Remove this from the budget? Your Activity stays as it is.";
+    if (window.confirm(msg)) onRemove(removeIds);
+  }
+
+  const err = (key: string) =>
+    errors[key]
+      ? {
+          "aria-invalid": true as const,
+          "aria-describedby": `${ids}-${key}`,
         }
-        const n = Number(raw.replace(/,/g, ""));
-        if (Number.isFinite(n)) onChange(n);
-      }}
-      className="cell-input num-input w-full"
-    />
+      : {};
+  const errText = (key: string) =>
+    errors[key] ? (
+      <span id={`${ids}-${key}`} className="mt-1 block text-sm text-danger">
+        {errors[key]}
+      </span>
+    ) : null;
+
+  return (
+    <Modal open={editor != null} title={title} onClose={onClose}>
+      <form onSubmit={submit} className="space-y-4" noValidate>
+        {kind === "limit" && !editingLimit ? (
+          <label className="block text-sm font-semibold text-ink">
+            Category
+            <select
+              value={categoryId}
+              onChange={(e) => setCategoryId(e.target.value)}
+              className={fieldClass}
+              {...err("category")}
+            >
+              <option value="">Choose a category</option>
+              {categories.map((c) => (
+                <option key={c.id} value={c.id} disabled={existingCategoryIds.includes(c.id)}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+            {errText("category")}
+          </label>
+        ) : null}
+        {kind === "bill" ? (
+          <label className="block text-sm font-semibold text-ink">
+            Bill name
+            <input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              className={fieldClass}
+              placeholder="e.g. Electricity"
+              {...err("name")}
+            />
+            {errText("name")}
+          </label>
+        ) : null}
+        <label className="block text-sm font-semibold text-ink">
+          {kind === "limit" ? "Spending limit" : kind === "bill" ? "Amount" : "Expected income"}
+          <input
+            inputMode="decimal"
+            value={amount}
+            onChange={(e) => setAmount(e.target.value)}
+            className={fieldClass}
+            placeholder="₱"
+            {...err("amount")}
+          />
+          {errText("amount")}
+        </label>
+        {kind === "bill" ? (
+          <label className="block text-sm font-semibold text-ink">
+            Due date
+            <input
+              type="date"
+              value={due}
+              min={periodStart}
+              max={periodEnd}
+              onChange={(e) => setDue(e.target.value)}
+              className={fieldClass}
+              {...err("due")}
+            />
+            {errText("due")}
+          </label>
+        ) : null}
+        <div className="flex flex-wrap gap-2">
+          <button type="submit" className="flex-1 rounded-full bg-ink px-4 py-3 text-base font-semibold text-paper">
+            Save
+          </button>
+          {isEdit ? (
+            <button
+              type="button"
+              onClick={remove}
+              className="rounded-full border border-danger/30 px-4 py-3 text-base font-semibold text-danger"
+            >
+              Remove
+            </button>
+          ) : null}
+        </div>
+      </form>
+    </Modal>
   );
 }

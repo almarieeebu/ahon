@@ -99,7 +99,7 @@ export function OverviewDashboard({
       <div>
         <div className="mb-2">
           <h3 className="font-display text-base font-semibold">
-            By particular
+            By name
           </h3>
           <p className="text-xs text-ink-muted">
             Planned amounts from Budget · Actual from Activity
@@ -108,19 +108,19 @@ export function OverviewDashboard({
 
         {summary.byParticular.length === 0 ? (
           <p className="sheet-empty">
-            No budget lines or ledger entries for {emptyLabel} yet.
+            Nothing planned or recorded for {emptyLabel} yet.
           </p>
         ) : (
           <div className="sheet-wrap sheet-stack">
             <table className="sheet">
               <thead>
                 <tr>
-                  <th>Particular</th>
+                  <th>Name</th>
                   <th className="num">Budget in</th>
                   <th className="num">Budget out</th>
                   <th className="num">Actual in</th>
                   <th className="num">Actual out</th>
-                  <th className="num">Budget lines</th>
+                  <th className="num">Planned items</th>
                   <th className="num">Log</th>
                 </tr>
               </thead>

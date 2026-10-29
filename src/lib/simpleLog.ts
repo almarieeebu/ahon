@@ -11,7 +11,7 @@ import {
   syncBillStatus,
   unpayInstallmentRow,
 } from "./payments";
-import { periodOverlapsMonth, summarizeMonthBudget } from "./periodBudget";
+import { copyBudgetTargets, summarizeMonthBudget } from "./periodBudget";
 import { findParticular, resolveParticularRef } from "./refs";
 import { nextUnpaid } from "./schedule";
 import { accountBalances, byKind, liveAccounts } from "./selectors";
@@ -19,7 +19,6 @@ import type {
   Account,
   AppState,
   BudgetLine,
-  BudgetPeriod,
   Transaction,
 } from "./types";
 
@@ -146,7 +145,10 @@ export function moreParticulars(
 export function unpaidPlanLines(state: AppState, month: string): BudgetLine[] {
   return summarizeMonthBudget(state, month).lines.filter(
     (line) =>
-      line.status !== "paid" && ((line.income || 0) > 0 || (line.expense || 0) > 0),
+      // Category spending limits are not bills to pay.
+      line.lineType !== "limit" &&
+      line.status !== "paid" &&
+      ((line.income || 0) > 0 || (line.expense || 0) > 0),
   );
 }
 
@@ -184,19 +186,6 @@ export function previousMonthWithPlan(
 ): string | null {
   const months = monthsWithPlannedLines(state).filter((key) => key < toKey);
   return months[months.length - 1] ?? null;
-}
-
-function monthEnd(key: string): string {
-  const [year, month] = key.split("-").map(Number);
-  return `${key}-${String(new Date(year, month, 0).getDate()).padStart(2, "0")}`;
-}
-
-function shiftIso(iso: string, fromKey: string, toKey: string): string {
-  if (!iso) return "";
-  const day = Number((iso.startsWith(fromKey) ? iso : `${fromKey}-01`).slice(-2));
-  const last = Number(monthEnd(toKey).slice(-2));
-  const safe = Number.isFinite(day) && day > 0 ? Math.min(day, last) : 1;
-  return `${toKey}-${String(safe).padStart(2, "0")}`;
 }
 
 /**
@@ -706,55 +695,20 @@ export function payBudgetLine(
     ...state,
     accounts,
     budgetLines: state.budgetLines.map((item) =>
-      item.id === lineId
-        ? { ...item, status: "paid", actual: transaction.amount }
-        : item,
+      // The linked transaction is the record; no manual actual is written.
+      item.id === lineId ? { ...item, status: "paid" } : item,
     ),
     transactions: [...state.transactions, transaction],
   };
 }
 
+/** Copy a month's budget targets (see copyBudgetTargets). */
 export function copyBudgetMonth(
   state: AppState,
   fromKey: string,
   toKey: string,
 ): AppState | null {
-  if (!fromKey || !toKey || fromKey === toKey) return null;
-  if (state.budgetPeriods.some((period) => periodOverlapsMonth(period, toKey))) {
-    return null;
-  }
-
-  const sourcePeriods = state.budgetPeriods.filter((period) =>
-    periodOverlapsMonth(period, fromKey),
-  );
-  if (sourcePeriods.length === 0) return null;
-
-  const budgetPeriods: BudgetPeriod[] = [...state.budgetPeriods];
-  const budgetLines: BudgetLine[] = [...state.budgetLines];
-
-  for (const period of sourcePeriods) {
-    const nextPeriod: BudgetPeriod = {
-      id: uid(),
-      start: shiftIso(period.start, fromKey, toKey) || `${toKey}-01`,
-      end: shiftIso(period.end, fromKey, toKey) || monthEnd(toKey),
-    };
-    budgetPeriods.push(nextPeriod);
-    const rows = state.budgetLines
-      .filter((line) => line.periodId === period.id)
-      .sort((a, b) => a.order - b.order);
-    for (const row of rows) {
-      budgetLines.push({
-        ...row,
-        id: uid(),
-        periodId: nextPeriod.id,
-        due: row.due ? shiftIso(row.due, fromKey, toKey) : "",
-        actual: null,
-        status: "unpaid",
-      });
-    }
-  }
-
-  return { ...state, budgetPeriods, budgetLines };
+  return copyBudgetTargets(state, fromKey, toKey);
 }
 
 export function logSaveFeedback(

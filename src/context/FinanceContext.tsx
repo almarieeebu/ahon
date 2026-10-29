@@ -13,7 +13,12 @@ import {
 import { useAuth } from "@/context/AuthContext";
 import { presetState } from "@/lib/defaults";
 import { monthKey, todayIso, uid } from "@/lib/money";
-import { emptyBudgetLine } from "@/lib/periodBudget";
+import {
+  createBudget,
+  emptyBudgetLine,
+  setLegacyReview,
+  type NewBudgetInput,
+} from "@/lib/periodBudget";
 import { resolveParticularRef } from "@/lib/refs";
 import {
   applySimpleLog,
@@ -49,6 +54,7 @@ import type {
   BudgetLine,
   BudgetPeriod,
   Category,
+  LegacyReview,
   Particular,
   Transaction,
 } from "@/lib/types";
@@ -67,7 +73,12 @@ type FinanceValue = {
   logSimple: (draft: SimpleLogDraft) => void;
   updateSimple: (id: string, draft: SimpleLogDraft) => void;
   payPlanLine: (lineId: string, liabilityId?: string | null) => void;
+  /** Copy budget targets only; does nothing if the month has a budget. */
   copyMonthPlan: (fromKey: string, toKey: string) => void;
+  /** New budget (validated; idempotent by input.id). */
+  createMonthBudget: (input: NewBudgetInput) => void;
+  /** Keep an earlier manual amount as a note, hide it, or undo (null). */
+  reviewLegacyEntry: (lineId: string, review: LegacyReview | null) => void;
   updateTransaction: (tx: Transaction) => void;
   removeTransaction: (id: string) => void;
   upsertAccount: (account: Account) => void;
@@ -242,6 +253,20 @@ export function FinanceProvider({ children }: { children: ReactNode }) {
   const copyMonthPlan = useCallback((fromKey: string, toKey: string) => {
     setState((prev) => copyBudgetMonth(prev, fromKey, toKey) ?? prev);
   }, []);
+
+  const createMonthBudget = useCallback((input: NewBudgetInput) => {
+    setState((prev) => {
+      const result = createBudget(prev, input);
+      return result.ok ? result.state : prev;
+    });
+  }, []);
+
+  const reviewLegacyEntry = useCallback(
+    (lineId: string, review: LegacyReview | null) => {
+      setState((prev) => setLegacyReview(prev, lineId, review));
+    },
+    [],
+  );
 
   const updateTransaction = useCallback((tx: Transaction) => {
     setState((prev) => applyUpdateTransaction(prev, tx) ?? prev);
@@ -620,6 +645,8 @@ export function FinanceProvider({ children }: { children: ReactNode }) {
       updateSimple,
       payPlanLine,
       copyMonthPlan,
+      createMonthBudget,
+      reviewLegacyEntry,
       updateTransaction,
       removeTransaction,
       upsertAccount,
@@ -657,6 +684,8 @@ export function FinanceProvider({ children }: { children: ReactNode }) {
       updateSimple,
       payPlanLine,
       copyMonthPlan,
+      createMonthBudget,
+      reviewLegacyEntry,
       updateTransaction,
       removeTransaction,
       upsertAccount,

@@ -93,9 +93,9 @@ export const PAGE_TIPS: Record<TabId, PageTip> = {
   budget: {
     title: "Budget",
     bullets: [
-      "This is the guide for the month, not the truth of what happened.",
-      "Copy last month when a new month starts.",
-      "Tap I paid this on Home instead of retyping a bill.",
+      "Set a spending limit for a few categories. Spent and Left fill in from your Activity.",
+      "Copy last month when a new month starts. Only limits, expected income and bills are copied.",
+      "Loan and card repayments show in their own row, not as spending.",
     ],
   },
   more: {

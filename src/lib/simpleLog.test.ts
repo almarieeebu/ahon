@@ -151,7 +151,9 @@ describe("payBudgetLine", () => {
     assert.ok(next);
     const line = next?.budgetLines.find((item) => item.id === "pay");
     assert.equal(line?.status, "paid");
-    assert.equal(line?.actual, 25000);
+    // No manual actual is written; the linked transaction is the record.
+    assert.equal(line?.actual, null);
+    assert.equal(next?.transactions[0]?.budgetLineId, "pay");
     assert.equal(next?.transactions[0]?.kind, "income");
     assert.equal(accountBalances(next!)["cash-on-hand"], 26000);
   });
@@ -162,7 +164,8 @@ describe("payBudgetLine", () => {
     const next = payBudgetLine(state, "electric", "2026-08-10");
     const line = next?.budgetLines.find((item) => item.id === "electric");
     assert.equal(line?.status, "paid");
-    assert.equal(line?.actual, 2000);
+    assert.equal(line?.actual, null);
+    assert.equal(next?.transactions[0]?.budgetLineId, "electric");
     assert.equal(next?.transactions[0]?.kind, "expense");
     assert.equal(accountBalances(next!)["cash-on-hand"], 3000);
   });

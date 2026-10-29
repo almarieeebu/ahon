@@ -208,6 +208,16 @@ export async function loadCloudState(
       actual: row.actual == null ? null : num(row.actual),
       status: (row.status as BudgetLine["status"]) || "",
       order: num(row.sort_order),
+      // null (pre-migration rows) = legacy row, read from its amounts.
+      ...(row.line_type === "limit" ||
+      row.line_type === "bill" ||
+      row.line_type === "income"
+        ? { lineType: row.line_type as BudgetLine["lineType"] }
+        : {}),
+      ...(row.category_id ? { categoryId: String(row.category_id) } : {}),
+      ...(row.legacy_review === "kept" || row.legacy_review === "hidden"
+        ? { legacyReview: row.legacy_review as BudgetLine["legacyReview"] }
+        : {}),
     }));
 
   const transactions: Transaction[] = (txRes.data ?? []).map((row) => ({
@@ -388,7 +398,9 @@ export async function saveCloudState(
   }
 
   if (state.budgetLines.length) {
-    const { error } = await supabase.from("budget_lines").insert(
+    const { error } = await insertCompat(
+      supabase,
+      "budget_lines",
       state.budgetLines.map((l) => ({
         id: l.id,
         user_id: userId,
@@ -401,9 +413,13 @@ export async function saveCloudState(
         actual: l.actual,
         status: l.status || "unpaid",
         sort_order: l.order,
+        line_type: l.lineType ?? null,
+        category_id: l.categoryId ?? null,
+        legacy_review: l.legacyReview ?? null,
       })),
+      ["line_type", "category_id", "legacy_review"],
     );
-    if (error) return { error: error.message };
+    if (error) return { error };
   }
 
   if (state.transactions.length) {

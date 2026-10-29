@@ -86,6 +86,19 @@ export interface BudgetPeriod {
 
 export type BudgetLineStatus = "paid" | "unpaid" | "";
 
+/**
+ * What a budget row is for. Missing on rows created before monthly budgets
+ * (legacy rows): those are read as a planned bill (expense > 0) or expected
+ * income (income > 0).
+ * - limit: spending limit for one Category (categoryId), amount in `expense`.
+ * - bill: one planned bill (name in `particular`, amount in `expense`, `due`).
+ * - income: expected income (amount in `income`).
+ */
+export type BudgetLineType = "limit" | "bill" | "income";
+
+/** Review choice for an earlier manual amount (legacy `actual`). */
+export type LegacyReview = "kept" | "hidden";
+
 export interface BudgetLine {
   id: string;
   periodId: string;
@@ -96,9 +109,18 @@ export interface BudgetLine {
   particularId: string | null;
   income: number;
   expense: number;
+  /**
+   * Legacy hand-entered amount. Kept as stored; never written by new code and
+   * never added to transaction-derived spending (see reconcileLegacyActuals).
+   */
   actual: number | null;
   status: BudgetLineStatus;
   order: number;
+  lineType?: BudgetLineType;
+  /** FK to Category.id for a `limit` row. */
+  categoryId?: string | null;
+  /** Person's review of a legacy `actual` that no activity explains. */
+  legacyReview?: LegacyReview | null;
 }
 
 /**

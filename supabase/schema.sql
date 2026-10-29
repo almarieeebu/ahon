@@ -236,3 +236,17 @@ alter table public.accounts add column if not exists interest_known boolean;
 alter table public.installments add column if not exists paid_amount numeric(14, 2);
 
 notify pgrst, 'reload schema';
+
+-- ---------- migrate existing DBs: monthly budget from activity ----------
+-- Safe to re-run; nullable columns only, RLS unchanged (budget_lines_own
+-- still limits every row to user_id = auth.uid()). Existing rows keep null
+-- and are read as before: expense > 0 = planned bill, income > 0 = expected
+-- income. The stored "actual" column is kept as-is and no longer written.
+-- line_type: 'limit' (category spending limit), 'bill', 'income'.
+alter table public.budget_lines add column if not exists line_type text;
+-- Category for a 'limit' row (plain text id, like transactions.category).
+alter table public.budget_lines add column if not exists category_id text;
+-- Review of an earlier manual amount: 'kept' (note) or 'hidden'.
+alter table public.budget_lines add column if not exists legacy_review text;
+
+notify pgrst, 'reload schema';
