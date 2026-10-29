@@ -79,6 +79,8 @@ function normalizeAccount(account: Account): Account {
     schedule: account.schedule ?? undefined,
     dueDay: account.dueDay ?? 0,
     goal: account.goal ?? 0,
+    // Records saved before this flag existed were entered as real balances.
+    balanceKnown: account.balanceKnown !== false,
   };
 }
 
@@ -156,6 +158,7 @@ function normalizeTransaction(
     toId: tx.toId ?? null,
     note: tx.note ?? "",
     installmentId: tx.installmentId,
+    budgetLineId: tx.budgetLineId ?? null,
   };
 }
 

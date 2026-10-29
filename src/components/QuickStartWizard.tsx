@@ -129,7 +129,7 @@ export function QuickStartWizard({
         ?? current.accounts.find((account) => account.kind === "cash");
       const accounts: Account[] = current.accounts.map((account) =>
         account.id === cashAccount?.id
-          ? { ...account, openingBalance: cashNow }
+          ? { ...account, openingBalance: cashNow, balanceKnown: cash.trim() !== "" }
           : account,
       );
 

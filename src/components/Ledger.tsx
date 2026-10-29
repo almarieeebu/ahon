@@ -13,14 +13,17 @@ import type { Transaction } from "@/lib/types";
 export function Ledger({
   onManageParticulars,
   onManageCategories,
+  onAddLoan,
 }: {
   onManageParticulars?: () => void;
   onManageCategories?: () => void;
+  onAddLoan?: () => void;
 }) {
   const { state, month, removeTransaction } = useFinance();
   const [open, setOpen] = useState(false);
   const [simpleOpen, setSimpleOpen] = useState(false);
   const [editing, setEditing] = useState<Transaction | null>(null);
+  const [addMode, setAddMode] = useState<"expense" | "any">("any");
 
   const rows = useMemo(
     () =>
@@ -36,8 +39,9 @@ export function Ledger({
     setEditing(null);
   }
 
-  function openAdd() {
+  function openAdd(mode: "expense" | "any" = "any") {
     setEditing(null);
+    setAddMode(mode);
     setOpen(false);
     setSimpleOpen(true);
   }
@@ -80,19 +84,29 @@ export function Ledger({
               : `${rows.length} transaction${rows.length === 1 ? "" : "s"}.`}
           </p>
         </div>
-        <button
-          type="button"
-          data-testid="log-add"
-          onClick={openAdd}
-          className="shrink-0 rounded-full bg-ink px-4 py-2.5 text-sm font-semibold text-paper"
-        >
-          Log money
-        </button>
+        <div className="flex shrink-0 flex-wrap justify-end gap-2">
+          <button
+            type="button"
+            data-testid="log-add-expense"
+            onClick={() => openAdd("expense")}
+            className="rounded-full bg-ink px-4 py-2.5 text-sm font-semibold text-paper"
+          >
+            Add expense
+          </button>
+          <button
+            type="button"
+            data-testid="log-add"
+            onClick={() => openAdd("any")}
+            className="rounded-full border border-ink/20 bg-white px-4 py-2.5 text-sm font-semibold text-ink"
+          >
+            Log money
+          </button>
+        </div>
       </div>
 
       {rows.length === 0 ? (
         <p className="sheet-empty">
-          Tap Log money to add payday, a bill, or gastos.
+          Tap Add expense for gastos, or Log money for payday and bills.
         </p>
       ) : (
         <>
@@ -102,6 +116,7 @@ export function Ledger({
               const meta = rowMeta(state, tx);
               const inflow =
                 tx.kind === "income" ||
+                (tx.kind === "borrow" && Boolean(tx.toId)) ||
                 (tx.kind === "adjustment" && tx.toId && !tx.fromId);
               return (
                 <li
@@ -170,6 +185,7 @@ export function Ledger({
                   const meta = rowMeta(state, tx);
                   const inflow =
                 tx.kind === "income" ||
+                (tx.kind === "borrow" && Boolean(tx.toId)) ||
                 (tx.kind === "adjustment" && tx.toId && !tx.fromId);
                   return (
                     <tr key={tx.id}>
@@ -227,6 +243,9 @@ export function Ledger({
         key={editing?.id ?? "new"}
         open={simpleOpen}
         initial={editing}
+        prefill={!editing && addMode === "expense" ? { direction: "out" } : undefined}
+        title={!editing && addMode === "expense" ? "Add expense" : undefined}
+        onAddLoan={onAddLoan}
         onClose={closeModal}
         onManageParticulars={onManageParticulars}
         onManageCategories={onManageCategories}

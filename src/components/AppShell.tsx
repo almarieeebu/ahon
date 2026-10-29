@@ -145,6 +145,7 @@ export function AppShell() {
           <Ledger
             onManageParticulars={() => openMore("particulars")}
             onManageCategories={() => openMore("budget")}
+            onAddLoan={() => setTab("utang")}
           />
         ) : null}
         {tab === "save" ? <SaveView /> : null}

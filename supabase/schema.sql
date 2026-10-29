@@ -112,7 +112,7 @@ create table if not exists public.transactions (
   id text primary key,
   user_id uuid not null references auth.users (id) on delete cascade,
   tx_date date not null,
-  kind text not null check (kind in ('income', 'expense', 'transfer', 'payment', 'adjustment')),
+  kind text not null check (kind in ('income', 'expense', 'transfer', 'payment', 'adjustment', 'borrow')),
   amount numeric(14, 2) not null,
   category text not null default '',
   particular text not null default '',
@@ -204,6 +204,25 @@ alter table public.profiles alter column setup_complete set not null;
 
 alter table public.transactions drop constraint if exists transactions_kind_check;
 alter table public.transactions add constraint transactions_kind_check
-  check (kind in ('income', 'expense', 'transfer', 'payment', 'adjustment'));
+  check (kind in ('income', 'expense', 'transfer', 'payment', 'adjustment', 'borrow'));
+
+-- ---------- migrate existing DBs: easier expense + loan recording ----------
+-- Safe to re-run. All new columns are nullable; existing rows keep their
+-- meaning (null balance_known = balance was entered, i.e. known).
+-- Ownership stays per-user through the existing *_own RLS policies on these
+-- tables (user_id = auth.uid()); no new tables are added.
+
+-- Wallet opening balance may be unknown ("balance incomplete"), not a verified 0.
+alter table public.accounts add column if not exists balance_known boolean;
+
+-- Explicit link from a transaction to the planned bill (budget line) it paid.
+alter table public.transactions add column if not exists budget_line_id text
+  references public.budget_lines (id) on delete set null;
+create index if not exists transactions_budget_line_id_idx
+  on public.transactions (budget_line_id);
+
+-- Loan proceeds ('borrow'): from_id = the liability, to_id = receiving wallet.
+-- Payments keep linking the loan explicitly through to_id (kind 'payment').
+-- (Kind constraint above already allows 'borrow'.)
 
 notify pgrst, 'reload schema';

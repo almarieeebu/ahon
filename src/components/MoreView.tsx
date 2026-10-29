@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useRef, useState } from "react";
+import { FormEvent, useRef, useState } from "react";
 import { AccountsPanel } from "@/components/AccountsPanel";
 import { BudgetPanel } from "@/components/BudgetPanel";
 import { Modal } from "@/components/Modal";
@@ -49,9 +49,12 @@ export function MoreView({
     state.categories[0]?.id ?? "",
   );
 
-  useEffect(() => {
+  // Jump to a newly requested tab (adjust state during render).
+  const [lastFocus, setLastFocus] = useState(focusTab);
+  if (focusTab !== lastFocus) {
+    setLastFocus(focusTab);
     if (focusTab) setTab(focusTab);
-  }, [focusTab]);
+  }
 
   function downloadBackup() {
     const blob = new Blob([exportState(state)], { type: "application/json" });

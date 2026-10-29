@@ -23,6 +23,7 @@ import {
   payBudgetLine,
   type SimpleLogDraft,
 } from "@/lib/simpleLog";
+import { applyRemoveTransaction } from "@/lib/payments";
 import { scheduleRemaining } from "@/lib/schedule";
 import { accountBalances } from "@/lib/selectors";
 import { loadState, saveState } from "@/lib/storage";
@@ -55,7 +56,7 @@ type FinanceValue = {
   addTransaction: (tx: Omit<Transaction, "id">) => void;
   logSimple: (draft: SimpleLogDraft) => void;
   updateSimple: (id: string, draft: SimpleLogDraft) => void;
-  payPlanLine: (lineId: string) => void;
+  payPlanLine: (lineId: string, liabilityId?: string | null) => void;
   copyMonthPlan: (fromKey: string, toKey: string) => void;
   updateTransaction: (tx: Transaction) => void;
   removeTransaction: (id: string) => void;
@@ -213,9 +214,14 @@ export function FinanceProvider({ children }: { children: ReactNode }) {
     setState((prev) => applySimpleUpdate(prev, id, draft) ?? prev);
   }, []);
 
-  const payPlanLine = useCallback((lineId: string) => {
-    setState((prev) => payBudgetLine(prev, lineId) ?? prev);
-  }, []);
+  const payPlanLine = useCallback(
+    (lineId: string, liabilityId?: string | null) => {
+      setState(
+        (prev) => payBudgetLine(prev, lineId, todayIso(), liabilityId) ?? prev,
+      );
+    },
+    [],
+  );
 
   const copyMonthPlan = useCallback((fromKey: string, toKey: string) => {
     setState((prev) => copyBudgetMonth(prev, fromKey, toKey) ?? prev);
@@ -226,29 +232,8 @@ export function FinanceProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const removeTransaction = useCallback((id: string) => {
-    setState((prev) => {
-      const tx = prev.transactions.find((t) => t.id === id);
-      let accounts = prev.accounts;
-      if (tx?.installmentId && tx.toId) {
-        accounts = prev.accounts.map((a) =>
-          a.id !== tx.toId
-            ? a
-            : {
-                ...a,
-                schedule: a.schedule?.map((r) =>
-                  r.id === tx.installmentId
-                    ? { ...r, status: "unpaid" as const, balanceAfter: null }
-                    : r,
-                ),
-              },
-        );
-      }
-      return {
-        ...prev,
-        accounts,
-        transactions: prev.transactions.filter((t) => t.id !== id),
-      };
-    });
+    // Reverses wallet/loan balances (derived), installment and bill status.
+    setState((prev) => applyRemoveTransaction(prev, id));
   }, []);
 
   const upsertAccount = useCallback((account: Account) => {
@@ -434,7 +419,14 @@ export function FinanceProvider({ children }: { children: ReactNode }) {
       const current = accountBalances(prev)[id] ?? 0;
       const target = Math.round(amount * 100) / 100;
       const delta = Math.round((target - current) * 100) / 100;
-      if (Math.abs(delta) < 0.005) return prev;
+      // Stating the current balance makes an incomplete wallet complete.
+      const accounts =
+        account.balanceKnown === false
+          ? prev.accounts.map((a) => (a.id === id ? { ...a, balanceKnown: true } : a))
+          : prev.accounts;
+      if (Math.abs(delta) < 0.005) {
+        return accounts === prev.accounts ? prev : { ...prev, accounts };
+      }
 
       const abs = Math.abs(delta);
       let fromId: string | null = null;
@@ -460,7 +452,7 @@ export function FinanceProvider({ children }: { children: ReactNode }) {
         toId,
         note: "Bank reconciliation",
       };
-      return { ...prev, transactions: [...prev.transactions, tx] };
+      return { ...prev, accounts, transactions: [...prev.transactions, tx] };
     });
   }, []);
 

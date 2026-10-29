@@ -3,9 +3,9 @@
 import { FormEvent, useState } from "react";
 import { Modal } from "@/components/Modal";
 import { useFinance } from "@/context/FinanceContext";
-import { emptyAccount } from "@/lib/defaults";
 import { phpSmart } from "@/lib/money";
-import { byKind } from "@/lib/selectors";
+import { createWallet } from "@/lib/payments";
+import { byKind, isBalanceKnown } from "@/lib/selectors";
 
 export function AccountsPanel() {
   const { state, balances, upsertAccount, archiveAccount, setCurrentBalance } =
@@ -13,21 +13,25 @@ export function AccountsPanel() {
   const banks = byKind(state, "cash");
   const [addOpen, setAddOpen] = useState(false);
   const [name, setName] = useState("");
-  const [opening, setOpening] = useState("0");
+  const [opening, setOpening] = useState("");
+  const [addError, setAddError] = useState("");
 
   function closeAdd() {
     setAddOpen(false);
     setName("");
-    setOpening("0");
+    setOpening("");
+    setAddError("");
   }
 
   function addBank(event: FormEvent) {
     event.preventDefault();
-    const n = name.trim();
-    if (!n) return;
-    const account = emptyAccount("cash", n);
-    account.openingBalance = Number(opening) || 0;
-    upsertAccount(account);
+    const result = createWallet(state, name, opening);
+    if ("error" in result) {
+      setAddError(result.error);
+      return;
+    }
+    const account = result.state.accounts.find((a) => a.id === result.accountId);
+    if (account) upsertAccount(account);
     closeAdd();
   }
 
@@ -77,8 +81,13 @@ export function AccountsPanel() {
                   }}
                   className="w-full bg-transparent font-medium outline-none"
                 />
-                <span className="shrink-0 font-display text-lg font-semibold">
+                <span className="shrink-0 text-right font-display text-lg font-semibold">
                   {phpSmart(balances[a.id] ?? 0)}
+                  {!isBalanceKnown(a) ? (
+                    <span className="block font-sans text-[11px] font-semibold text-gold-deep">
+                      Balance incomplete
+                    </span>
+                  ) : null}
                 </span>
               </div>
               <label className="mt-3 block text-xs text-ink-muted">
@@ -90,8 +99,9 @@ export function AccountsPanel() {
                   key={`${a.id}-open-${a.openingBalance}`}
                   onBlur={(e) => {
                     const n = Number(e.target.value);
-                    if (Number.isFinite(n) && n !== a.openingBalance) {
-                      upsertAccount({ ...a, openingBalance: n });
+                    if (e.target.value.trim() === "" || !Number.isFinite(n)) return;
+                    if (n !== a.openingBalance || !isBalanceKnown(a)) {
+                      upsertAccount({ ...a, openingBalance: n, balanceKnown: true });
                     }
                   }}
                   className="mt-1 w-full rounded-lg border border-paper-line px-2 py-1.5 text-sm text-ink"
@@ -149,15 +159,20 @@ export function AccountsPanel() {
             />
           </label>
           <label className="block text-xs text-ink-muted">
-            Opening / current balance
+            Opening / current balance (optional)
             <input
-              type="number"
-              min={0}
+              inputMode="decimal"
               value={opening}
               onChange={(e) => setOpening(e.target.value)}
+              placeholder="Leave blank if you are not sure"
               className="mt-1 w-full rounded-xl border border-paper-line px-3 py-2 text-sm text-ink"
             />
           </label>
+          {addError ? (
+            <p role="alert" className="text-sm font-semibold text-danger">
+              {addError}
+            </p>
+          ) : null}
           <button
             type="submit"
             className="w-full rounded-full bg-ink px-4 py-2.5 text-sm font-semibold text-paper"

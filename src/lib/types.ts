@@ -29,6 +29,12 @@ export interface Account {
   goal: number;
   archived: boolean;
   schedule?: Installment[];
+  /**
+   * False when the person did not know the starting balance (cash/savings),
+   * so openingBalance 0 is a placeholder, not a verified zero.
+   * Missing (legacy records) means known.
+   */
+  balanceKnown?: boolean;
 }
 
 export type ParticularTone =
@@ -82,7 +88,18 @@ export interface BudgetLine {
   order: number;
 }
 
-export type TxKind = "income" | "expense" | "transfer" | "payment" | "adjustment";
+/**
+ * - payment: money paid toward a liability (toId = the loan, explicit id).
+ * - borrow: loan proceeds received now (fromId = the loan, toId = wallet or
+ *   null when untracked). Raises both the debt and the wallet; NOT income.
+ */
+export type TxKind =
+  | "income"
+  | "expense"
+  | "transfer"
+  | "payment"
+  | "adjustment"
+  | "borrow";
 
 export interface Transaction {
   id: string;
@@ -99,6 +116,8 @@ export interface Transaction {
   toId: string | null;
   note: string;
   installmentId?: string;
+  /** Explicit link to a planned bill (BudgetLine.id). Never inferred. */
+  budgetLineId?: string | null;
 }
 
 export interface Settings {

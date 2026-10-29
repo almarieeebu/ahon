@@ -12,6 +12,7 @@ import {
   pickDailyPrompt,
   previousMonthWithPlan,
   shouldShowWalletPicker,
+  simpleDraftErrors,
   unpaidPlanLines,
 } from "@/lib/simpleLog";
 import { accountBalances } from "@/lib/selectors";
@@ -100,21 +101,22 @@ describe("simple logging", () => {
       direction: "out",
       amount: 500,
       chipId: "utang",
+      liabilityId: card.id,
     });
     assert.equal(tx?.kind, "payment");
     assert.equal(tx?.toId, card.id);
     assert.equal(tx?.fromId, "cash-on-hand");
   });
 
-  it("maps Utang to an expense when there is no debt account", () => {
+  it("blocks an Utang payment when there is no loan to pay", () => {
     const state = presetState();
-    const tx = buildSimpleTransaction(state, {
-      direction: "out",
+    const draft = {
+      direction: "out" as const,
       amount: 500,
       chipId: "utang",
-    });
-    assert.equal(tx?.kind, "expense");
-    assert.equal(tx?.particularId, "p-debt");
+    };
+    assert.equal(buildSimpleTransaction(state, draft), null);
+    assert.match(simpleDraftErrors(state, draft).loan ?? "", /no loans/i);
   });
 
   it("hides the wallet picker when there is only one cash account", () => {

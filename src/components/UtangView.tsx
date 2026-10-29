@@ -5,7 +5,8 @@ import { Modal } from "@/components/Modal";
 import { useFinance } from "@/context/FinanceContext";
 import { accountIsOverdue } from "@/lib/alerts";
 import { emptyAccount } from "@/lib/defaults";
-import { phpSmart, todayIso } from "@/lib/money";
+import { parseAmount, phpSmart, todayIso } from "@/lib/money";
+import { checkLoanPayment, type LoanPaymentCheck } from "@/lib/payments";
 import { projectPayoff } from "@/lib/payoff";
 import {
   buildMonthEndSchedule,
@@ -44,13 +45,9 @@ export function UtangView() {
   const installments = debts.filter((d) => d.mode === "installment");
   const budget = revolving.reduce((s, d) => s + (d.plannedPayment || 0), 0);
 
-  const projection = useMemo(
-    () =>
-      projectPayoff(
-        revolving.map((d) => ({ ...d, balance: balances[d.id] ?? 0 })),
-        budget || 0,
-      ),
-    [balances, budget, revolving],
+  const projection = projectPayoff(
+    revolving.map((d) => ({ ...d, balance: balances[d.id] ?? 0 })),
+    budget || 0,
   );
 
   const [fromId, setFromId] = useState(banks[0]?.id ?? "");
@@ -202,6 +199,9 @@ export function UtangView() {
             payFrom={payFrom}
             balances={balances}
             defaultFromId={fromId}
+            checkPayment={(toId, amount) =>
+              checkLoanPayment(state, { liabilityId: toId, amount })
+            }
             onDone={() => closeModal()}
             onBack={() => setAction("pick")}
             onPay={(payload) => {
@@ -252,7 +252,7 @@ function InstallmentSheet({
   onSave: (account: Account) => void;
   onArchive: () => void;
 }) {
-  const schedule = loan.schedule ?? [];
+  const schedule = useMemo(() => loan.schedule ?? [], [loan.schedule]);
   const next = nextUnpaid(schedule);
   const last = lastPaid(schedule);
   const paidCount = schedule.filter((r) => r.status === "paid").length;
@@ -319,7 +319,7 @@ function InstallmentSheet({
         <label className="mb-2 block text-xs text-ink-muted">
           Mark paid from
           <select
-            value={fromId || payFrom[0]?.id || "__untracked__"}
+            value={fromId || "__untracked__"}
             onChange={(e) => onFromId(e.target.value === "__untracked__" ? "" : e.target.value)}
             className="mt-1 w-full max-w-xs rounded-lg border border-paper-line bg-white px-2 py-1.5 text-sm text-ink"
           >
@@ -578,6 +578,7 @@ function BayadForm({
   payFrom,
   balances,
   defaultFromId,
+  checkPayment,
   onPay,
   onDone,
   onBack,
@@ -586,6 +587,7 @@ function BayadForm({
   payFrom: Account[];
   balances: Record<string, number>;
   defaultFromId: string;
+  checkPayment: (toId: string, amount: number) => LoanPaymentCheck;
   onPay: (payload: {
     toId: string;
     fromId: string | null;
@@ -594,27 +596,48 @@ function BayadForm({
   onDone: () => void;
   onBack: () => void;
 }) {
-  const [toId, setToId] = useState(revolving[0]?.id ?? "");
+  // No preselected loan: the person picks which one this payment is for.
+  const [toId, setToId] = useState("");
   const [fromId, setFromId] = useState(
-    defaultFromId || payFrom[0]?.id || "__untracked__",
+    defaultFromId || payFrom[0]?.id || "",
   );
   const [amount, setAmount] = useState("");
+  const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
 
   function submit(event: FormEvent) {
     event.preventDefault();
-    const value = Number(amount);
-    if (!toId || !Number.isFinite(value) || value <= 0) return;
-    const resolvedFrom =
-      fromId === "__untracked__" || !fromId ? null : fromId;
-    if (resolvedFrom == null && payFrom.length === 0) {
-      // ok — untracked only path
-    } else if (resolvedFrom == null && fromId !== "__untracked__") {
+    if (saving) return;
+    setError("");
+    if (!toId) {
+      setError("Choose which loan this payment is for.");
       return;
     }
+    const parsed = parseAmount(amount);
+    if (!parsed.ok) {
+      setError(parsed.error);
+      return;
+    }
+    if (!fromId) {
+      setError("Choose where the payment came from.");
+      return;
+    }
+    const resolvedFrom = fromId === "__untracked__" ? null : fromId;
+    const check = checkPayment(toId, parsed.value);
+    if (check.reason === "overpay") {
+      const ok = window.confirm(
+        `This is ${phpSmart(check.excess)} more than the ${phpSmart(check.remaining)} still owed. Record it anyway?`,
+      );
+      if (!ok) return;
+    } else if (check.error) {
+      setError(check.error);
+      return;
+    }
+    setSaving(true);
     onPay({
       toId,
       fromId: resolvedFrom,
-      amount: Math.round(value * 100) / 100,
+      amount: parsed.value,
     });
     onDone();
   }
@@ -630,7 +653,9 @@ function BayadForm({
           value={toId}
           onChange={(e) => setToId(e.target.value)}
           className="mt-1 w-full rounded-xl border border-paper-line bg-white px-3 py-2 text-sm font-normal text-ink"
+          required
         >
+          <option value="">Choose a loan</option>
           {revolving.map((d) => (
             <option key={d.id} value={d.id}>
               {d.name} · {phpSmart(balances[d.id] ?? 0)} left
@@ -644,7 +669,9 @@ function BayadForm({
           value={fromId}
           onChange={(e) => setFromId(e.target.value)}
           className="mt-1 w-full rounded-xl border border-paper-line bg-white px-3 py-2 text-sm font-normal text-ink"
+          required
         >
+          <option value="">Choose where it came from</option>
           {payFrom.map((a) => (
             <option key={a.id} value={a.id}>
               {a.name}
@@ -660,17 +687,28 @@ function BayadForm({
           </p>
         ) : null}
       </label>
-      <input
-        inputMode="decimal"
-        value={amount}
-        onChange={(e) => setAmount(e.target.value)}
-        placeholder="Amount"
-        required
-        className="w-full rounded-xl border border-paper-line px-3 py-2 text-sm"
-      />
+      <label className="block text-xs font-semibold uppercase tracking-wide text-ink-muted">
+        Amount (₱)
+        <input
+          inputMode="decimal"
+          value={amount}
+          onChange={(e) => setAmount(e.target.value)}
+          placeholder="Amount"
+          required
+          className="mt-1 w-full rounded-xl border border-paper-line px-3 py-2 text-sm font-normal text-ink"
+        />
+      </label>
+      <p
+        role="status"
+        aria-live="polite"
+        className={error ? "text-sm font-semibold text-danger" : "sr-only"}
+      >
+        {error}
+      </p>
       <button
         type="submit"
-        className="w-full rounded-full bg-ink py-2.5 text-sm font-semibold text-paper"
+        disabled={saving}
+        className="w-full rounded-full bg-ink py-2.5 text-sm font-semibold text-paper disabled:opacity-60"
       >
         Record payment
       </button>

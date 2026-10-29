@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useMemo, useState } from "react";
 import { Modal } from "@/components/Modal";
 import { PeriodBudgetView } from "@/components/PeriodBudgetView";
 import { useFinance } from "@/context/FinanceContext";
@@ -20,11 +20,10 @@ export function BudgetTabView() {
     [state.budgetPeriods, state.budgetLines],
   );
   const fallback = currentMonthKey();
-  const [selected, setSelected] = useState(months[0] ?? fallback);
-
-  useEffect(() => {
-    if (!months.includes(selected) && months[0]) setSelected(months[0]);
-  }, [months, selected]);
+  const [selectedChoice, setSelected] = useState(months[0] ?? fallback);
+  // Fall back to the first month with a plan when the chosen one disappears.
+  const selected =
+    months.includes(selectedChoice) || !months[0] ? selectedChoice : months[0];
 
   const summary = useMemo(
     () => summarizeMonthBudget(state, selected),

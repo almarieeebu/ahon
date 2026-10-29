@@ -31,7 +31,8 @@ function normalizeTxKind(kind: unknown): Transaction["kind"] {
     k === "expense" ||
     k === "transfer" ||
     k === "payment" ||
-    k === "adjustment"
+    k === "adjustment" ||
+    k === "borrow"
   ) {
     return k;
   }
@@ -42,6 +43,31 @@ function formatSbError(err: { message?: string; code?: string; details?: string 
   if (!err) return "Unknown Supabase error";
   const parts = [err.message, err.code, err.details].filter(Boolean);
   return parts.join(" — ") || "Unknown Supabase error";
+}
+
+/**
+ * Insert rows; if the project has not yet run the latest schema.sql migration
+ * (new nullable columns missing), retry once without those columns so older
+ * databases keep syncing. Local data still keeps the fields.
+ */
+async function insertCompat(
+  supabase: Sb,
+  table: string,
+  rows: Record<string, unknown>[],
+  newColumns: string[],
+): Promise<{ error: string | null }> {
+  const { error } = await supabase.from(table).insert(rows);
+  if (!error) return { error: null };
+  const msg = `${error.message ?? ""} ${error.details ?? ""}`.toLowerCase();
+  const missing = newColumns.filter((col) => msg.includes(col));
+  if (missing.length === 0) return { error: error.message };
+  const stripped = rows.map((row) => {
+    const copy = { ...row };
+    for (const col of missing) delete copy[col];
+    return copy;
+  });
+  const retry = await supabase.from(table).insert(stripped);
+  return { error: retry.error ? retry.error.message : null };
 }
 
 /** Friendlier copy for known Supabase / PostgREST failures. */
@@ -130,6 +156,8 @@ export async function loadCloudState(
     goal: num(row.goal),
     archived: Boolean(row.archived),
     schedule: installmentsByAccount.get(row.id),
+    // null (pre-migration rows) means the balance was entered as known.
+    balanceKnown: row.balance_known !== false,
   }));
 
   const categories: Category[] = (categoriesRes.data ?? [])
@@ -182,6 +210,7 @@ export async function loadCloudState(
     toId: row.to_id ?? null,
     note: row.note ?? "",
     installmentId: row.installment_id ?? undefined,
+    budgetLineId: row.budget_line_id ?? null,
   }));
 
   const profile = profileRes.data;
@@ -259,7 +288,9 @@ export async function saveCloudState(
   if (profileError) return { error: profileError.message };
 
   if (state.accounts.length) {
-    const { error } = await supabase.from("accounts").insert(
+    const { error } = await insertCompat(
+      supabase,
+      "accounts",
       state.accounts.map((a) => ({
         id: a.id,
         user_id: userId,
@@ -273,9 +304,11 @@ export async function saveCloudState(
         planned_payment: a.plannedPayment,
         goal: a.goal,
         archived: a.archived,
+        balance_known: a.balanceKnown !== false,
       })),
+      ["balance_known"],
     );
-    if (error) return { error: error.message };
+    if (error) return { error };
   }
 
   const installmentRows = state.accounts.flatMap((a) =>
@@ -355,7 +388,12 @@ export async function saveCloudState(
   }
 
   if (state.transactions.length) {
-    const { error } = await supabase.from("transactions").insert(
+    // Drop links to rows that no longer exist so one stale reference cannot
+    // fail the whole snapshot insert (FKs are on delete set null).
+    const lineIds = new Set(state.budgetLines.map((l) => l.id));
+    const { error } = await insertCompat(
+      supabase,
+      "transactions",
       state.transactions.map((t) => ({
         id: t.id,
         user_id: userId,
@@ -369,9 +407,12 @@ export async function saveCloudState(
         to_id: t.toId,
         note: t.note,
         installment_id: t.installmentId ?? null,
+        budget_line_id:
+          t.budgetLineId && lineIds.has(t.budgetLineId) ? t.budgetLineId : null,
       })),
+      ["budget_line_id"],
     );
-    if (error) return { error: error.message };
+    if (error) return { error };
   }
 
   return { error: null };

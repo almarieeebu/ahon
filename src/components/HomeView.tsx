@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { AffordThisMonthCard } from "@/components/AffordThisMonthCard";
 import { CriticalAlertsPanel } from "@/components/CriticalAlertsPanel";
 import { MoneyNeededCard } from "@/components/MoneyNeededCard";
@@ -100,43 +100,29 @@ export function HomeView({
   );
 
   const [tab, setTab] = useState<OverviewTab>("yearly");
-  const [year, setYear] = useState(years[0] ?? new Date().getFullYear());
-  const [selectedMonth, setSelectedMonth] = useState(
+  const [yearChoice, setYear] = useState(years[0] ?? new Date().getFullYear());
+  const [monthChoice, setSelectedMonth] = useState(
     month || months[0] || monthKey(),
   );
   const [logOpen, setLogOpen] = useState(false);
   const [logPrefill, setLogPrefill] = useState<LogPrefill | undefined>();
-  const [offerFirstLog, setOfferFirstLog] = useState(false);
+  const [logTitle, setLogTitle] = useState<string | undefined>();
   const [detailsOpen, setDetailsOpen] = useState(false);
-  const [dismissed, setDismissed] = useState<string[]>([]);
-  const [showRitual, setShowRitual] = useState(false);
+  // The app shell only renders on the client, so storage is readable here.
+  const [dismissed, setDismissed] = useState<string[]>(() =>
+    loadPromptDismissals(today),
+  );
+  const [showRitual, setShowRitual] = useState(() => !hasSeenRitual());
 
-  useEffect(() => {
-    setDismissed(loadPromptDismissals(today));
-    setShowRitual(!hasSeenRitual());
-  }, [today]);
-
-  useEffect(() => {
-    if (!years.includes(year) && years[0]) setYear(years[0]);
-  }, [years, year]);
-
-  useEffect(() => {
+  // Follow the header month when it changes (adjust state during render).
+  const [lastMonth, setLastMonth] = useState(month);
+  if (month !== lastMonth) {
+    setLastMonth(month);
     if (months.includes(month)) setSelectedMonth(month);
-  }, [month, months]);
-
-  useEffect(() => {
-    if (!months.includes(selectedMonth) && months[0]) {
-      setSelectedMonth(months[0]);
-    }
-  }, [months, selectedMonth]);
-
-  useEffect(() => {
-    if (state.settings.setupComplete && offerFirstLog) {
-      setLogPrefill({ direction: "out", chipId: "food" });
-      setLogOpen(true);
-      setOfferFirstLog(false);
-    }
-  }, [state.settings.setupComplete, offerFirstLog]);
+  }
+  const year = years.includes(yearChoice) || !years[0] ? yearChoice : years[0];
+  const selectedMonth =
+    months.includes(monthChoice) || !months[0] ? monthChoice : months[0];
 
   const prompt = useMemo(
     () =>
@@ -147,9 +133,14 @@ export function HomeView({
     [state, today, dismissed],
   );
 
-  function openLog(prefill?: LogPrefill) {
+  function openLog(prefill?: LogPrefill, title?: string) {
     setLogPrefill(prefill);
+    setLogTitle(title);
     setLogOpen(true);
+  }
+
+  function openAddExpense() {
+    openLog({ direction: "out" }, "Add expense");
   }
 
   function onAlertAction(action: AlertAction) {
@@ -166,7 +157,8 @@ export function HomeView({
     return (
       <QuickStartWizard
         onFinished={({ offerLog }) => {
-          if (offerLog) setOfferFirstLog(true);
+          // Opens once Home renders; no category is preselected.
+          if (offerLog) openAddExpense();
         }}
       />
     );
@@ -224,14 +216,24 @@ export function HomeView({
         <p className="mt-1 text-sm text-ink-muted">
           Cash left {phpSmart(status.cashLeft)}
         </p>
-        <button
-          type="button"
-          data-testid="home-log-money"
-          onClick={() => openLog()}
-          className="mt-4 w-full rounded-full bg-ink px-5 py-3 text-sm font-semibold text-paper"
-        >
-          Log money
-        </button>
+        <div className="mt-4 grid grid-cols-2 gap-2">
+          <button
+            type="button"
+            data-testid="home-add-expense"
+            onClick={openAddExpense}
+            className="rounded-full bg-ink px-5 py-3 text-sm font-semibold text-paper"
+          >
+            Add expense
+          </button>
+          <button
+            type="button"
+            data-testid="home-log-money"
+            onClick={() => openLog()}
+            className="rounded-full border border-ink/20 bg-white px-5 py-3 text-sm font-semibold text-ink"
+          >
+            Log money
+          </button>
+        </div>
       </div>
 
       {prompt ? (
@@ -424,9 +426,12 @@ export function HomeView({
       <SimpleLogSheet
         open={logOpen}
         prefill={logPrefill}
+        title={logTitle}
+        onAddLoan={onOpenUtang}
         onClose={() => {
           setLogOpen(false);
           setLogPrefill(undefined);
+          setLogTitle(undefined);
         }}
         onManageParticulars={() => onOpenMore("particulars")}
         onManageCategories={() => onOpenMore("budget")}
@@ -461,7 +466,7 @@ function TodayPromptCard({
             if (prompt.kind === "bill") onPay(prompt.line);
             else if (prompt.kind === "payday") onLog({ direction: "in", chipId: "paycheck" });
             else if (prompt.kind === "catchup") onLog({ direction: "out", chipId: "food" });
-            else onLog({ direction: "out", chipId: "food" });
+            else onLog({ direction: "out" });
           }}
           className="rounded-full bg-ink px-4 py-2 text-sm font-semibold text-paper"
         >

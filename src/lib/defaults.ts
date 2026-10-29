@@ -222,6 +222,8 @@ export function presetState(): AppState {
       name: "Cash on hand",
       kind: "cash",
       openingBalance: 0,
+      // Not entered yet: show "balance incomplete", never a verified ₱0.
+      balanceKnown: false,
       monthlyRate: 0,
       dueDay: 0,
       plannedPayment: 0,
