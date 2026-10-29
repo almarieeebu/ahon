@@ -31,7 +31,8 @@ function normalizeTxKind(kind: unknown): Transaction["kind"] {
     k === "expense" ||
     k === "transfer" ||
     k === "payment" ||
-    k === "adjustment"
+    k === "adjustment" ||
+    k === "borrow"
   ) {
     return k;
   }
@@ -42,6 +43,36 @@ function formatSbError(err: { message?: string; code?: string; details?: string 
   if (!err) return "Unknown Supabase error";
   const parts = [err.message, err.code, err.details].filter(Boolean);
   return parts.join(" — ") || "Unknown Supabase error";
+}
+
+/**
+ * Insert rows; if the project has not yet run the latest schema.sql migration
+ * (new nullable columns missing), retry without those columns so older
+ * databases keep syncing. Local data still keeps the fields.
+ */
+async function insertCompat(
+  supabase: Sb,
+  table: string,
+  rows: Record<string, unknown>[],
+  newColumns: string[],
+): Promise<{ error: string | null }> {
+  let current = rows;
+  const stripped = new Set<string>();
+  // One retry per missing column: an older database may lack several.
+  for (let attempt = 0; attempt <= newColumns.length; attempt += 1) {
+    const { error } = await supabase.from(table).insert(current);
+    if (!error) return { error: null };
+    const msg = `${error.message ?? ""} ${error.details ?? ""}`.toLowerCase();
+    const missing = newColumns.filter((col) => !stripped.has(col) && msg.includes(col));
+    if (missing.length === 0) return { error: error.message };
+    for (const col of missing) stripped.add(col);
+    current = rows.map((row) => {
+      const copy = { ...row };
+      for (const col of stripped) delete copy[col];
+      return copy;
+    });
+  }
+  return { error: `Could not save ${table}.` };
 }
 
 /** Friendlier copy for known Supabase / PostgREST failures. */
@@ -113,6 +144,8 @@ export async function loadCloudState(
       amount: num(row.amount),
       status: row.status === "paid" ? "paid" : "unpaid",
       balanceAfter: row.balance_after == null ? null : num(row.balance_after),
+      // null (pre-migration rows / legacy) = no partial-payment tracking.
+      ...(row.paid_amount == null ? {} : { paidAmount: num(row.paid_amount) }),
     });
     installmentsByAccount.set(row.account_id, list);
   }
@@ -130,6 +163,13 @@ export async function loadCloudState(
     goal: num(row.goal),
     archived: Boolean(row.archived),
     schedule: installmentsByAccount.get(row.id),
+    // null (pre-migration rows) means the balance was entered as known.
+    balanceKnown: row.balance_known !== false,
+    // null (pre-migration rows) = interest was entered (known); only an
+    // explicit false means "not known".
+    ...(row.kind === "liability"
+      ? { interestKnown: row.interest_known !== false }
+      : {}),
   }));
 
   const categories: Category[] = (categoriesRes.data ?? [])
@@ -168,6 +208,16 @@ export async function loadCloudState(
       actual: row.actual == null ? null : num(row.actual),
       status: (row.status as BudgetLine["status"]) || "",
       order: num(row.sort_order),
+      // null (pre-migration rows) = legacy row, read from its amounts.
+      ...(row.line_type === "limit" ||
+      row.line_type === "bill" ||
+      row.line_type === "income"
+        ? { lineType: row.line_type as BudgetLine["lineType"] }
+        : {}),
+      ...(row.category_id ? { categoryId: String(row.category_id) } : {}),
+      ...(row.legacy_review === "kept" || row.legacy_review === "hidden"
+        ? { legacyReview: row.legacy_review as BudgetLine["legacyReview"] }
+        : {}),
     }));
 
   const transactions: Transaction[] = (txRes.data ?? []).map((row) => ({
@@ -182,6 +232,7 @@ export async function loadCloudState(
     toId: row.to_id ?? null,
     note: row.note ?? "",
     installmentId: row.installment_id ?? undefined,
+    budgetLineId: row.budget_line_id ?? null,
   }));
 
   const profile = profileRes.data;
@@ -259,7 +310,9 @@ export async function saveCloudState(
   if (profileError) return { error: profileError.message };
 
   if (state.accounts.length) {
-    const { error } = await supabase.from("accounts").insert(
+    const { error } = await insertCompat(
+      supabase,
+      "accounts",
       state.accounts.map((a) => ({
         id: a.id,
         user_id: userId,
@@ -273,9 +326,12 @@ export async function saveCloudState(
         planned_payment: a.plannedPayment,
         goal: a.goal,
         archived: a.archived,
+        balance_known: a.balanceKnown !== false,
+        interest_known: a.kind === "liability" ? a.interestKnown !== false : null,
       })),
+      ["balance_known", "interest_known"],
     );
-    if (error) return { error: error.message };
+    if (error) return { error };
   }
 
   const installmentRows = state.accounts.flatMap((a) =>
@@ -287,12 +343,18 @@ export async function saveCloudState(
       amount: s.amount,
       status: s.status,
       balance_after: s.balanceAfter,
+      paid_amount: s.paidAmount ?? null,
       sort_order: i,
     })),
   );
   if (installmentRows.length) {
-    const { error } = await supabase.from("installments").insert(installmentRows);
-    if (error) return { error: error.message };
+    const { error } = await insertCompat(
+      supabase,
+      "installments",
+      installmentRows,
+      ["paid_amount"],
+    );
+    if (error) return { error };
   }
 
   if (state.categories.length) {
@@ -336,7 +398,9 @@ export async function saveCloudState(
   }
 
   if (state.budgetLines.length) {
-    const { error } = await supabase.from("budget_lines").insert(
+    const { error } = await insertCompat(
+      supabase,
+      "budget_lines",
       state.budgetLines.map((l) => ({
         id: l.id,
         user_id: userId,
@@ -349,13 +413,22 @@ export async function saveCloudState(
         actual: l.actual,
         status: l.status || "unpaid",
         sort_order: l.order,
+        line_type: l.lineType ?? null,
+        category_id: l.categoryId ?? null,
+        legacy_review: l.legacyReview ?? null,
       })),
+      ["line_type", "category_id", "legacy_review"],
     );
-    if (error) return { error: error.message };
+    if (error) return { error };
   }
 
   if (state.transactions.length) {
-    const { error } = await supabase.from("transactions").insert(
+    // Drop links to rows that no longer exist so one stale reference cannot
+    // fail the whole snapshot insert (FKs are on delete set null).
+    const lineIds = new Set(state.budgetLines.map((l) => l.id));
+    const { error } = await insertCompat(
+      supabase,
+      "transactions",
       state.transactions.map((t) => ({
         id: t.id,
         user_id: userId,
@@ -369,9 +442,12 @@ export async function saveCloudState(
         to_id: t.toId,
         note: t.note,
         installment_id: t.installmentId ?? null,
+        budget_line_id:
+          t.budgetLineId && lineIds.has(t.budgetLineId) ? t.budgetLineId : null,
       })),
+      ["budget_line_id"],
     );
-    if (error) return { error: error.message };
+    if (error) return { error };
   }
 
   return { error: null };

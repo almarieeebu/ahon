@@ -1,15 +1,24 @@
 import { monthAffordability } from "./affordability";
-import { moneyNeededBeforePayday, nextPayday } from "./cashPlan";
-import { monthKey, todayIso, uid } from "./money";
-import { periodOverlapsMonth, summarizeMonthBudget } from "./periodBudget";
+import { nextPayday } from "./cashPlan";
+import { monthKey, parseAmount, todayIso, uid } from "./money";
+import {
+  applyRemoveTransaction,
+  checkLoanPayment,
+  findLiability,
+  installmentShortfall,
+  payNextInstallment,
+  repriceInstallmentRow,
+  syncBillStatus,
+  unpayInstallmentRow,
+} from "./payments";
+import { copyBudgetTargets, summarizeMonthBudget } from "./periodBudget";
 import { findParticular, resolveParticularRef } from "./refs";
-import { nextUnpaid, scheduleRemaining } from "./schedule";
+import { nextUnpaid } from "./schedule";
 import { accountBalances, byKind, liveAccounts } from "./selectors";
 import type {
   Account,
   AppState,
   BudgetLine,
-  BudgetPeriod,
   Transaction,
 } from "./types";
 
@@ -23,7 +32,8 @@ export type SimpleChip = {
 
 export const SPEND_CHIPS: SimpleChip[] = [
   { id: "food", label: "Food", particularId: "p-groceries" },
-  { id: "bills", label: "Bills", particularId: "p-electric" },
+  // Bills needs an explicit sub-choice (which bill) — no default particular.
+  { id: "bills", label: "Bills", particularId: "" },
   { id: "load", label: "Load", particularId: "p-mobile" },
   { id: "transport", label: "Transport", particularId: "p-transport" },
   { id: "utang", label: "Utang", particularId: "p-debt" },
@@ -34,14 +44,30 @@ export const INCOME_CHIPS: SimpleChip[] = [
   { id: "paycheck", label: "Paycheck / sweldo", particularId: "p-paycheck" },
 ];
 
-const BILL_PARTICULAR_IDS = new Set([
+export const BILL_PARTICULAR_IDS = new Set([
   "p-rent",
   "p-electric",
   "p-water",
   "p-internet",
 ]);
 
+/** Names offered under the Bills chip: starter bills + housing/utility names. */
+export function billParticulars(state: AppState): { id: string; name: string }[] {
+  const chipIds = new Set(SPEND_CHIPS.map((chip) => chip.particularId).filter(Boolean));
+  return state.particulars.filter((particular) => {
+    if (chipIds.has(particular.id)) return false;
+    if (BILL_PARTICULAR_IDS.has(particular.id)) return true;
+    const category = state.categories.find((c) => c.id === particular.categoryId);
+    return (
+      category?.kind !== "income" &&
+      (category?.tone === "utility" || category?.tone === "housing")
+    );
+  });
+}
+
 export type SimpleLogDraft = {
+  /** Client-generated id; repeating a submit with it never duplicates. */
+  id?: string;
   direction: SimpleDirection;
   amount: number;
   chipId?: string;
@@ -49,6 +75,13 @@ export type SimpleLogDraft = {
   fromId?: string | null;
   toId?: string | null;
   date?: string;
+  note?: string;
+  /** Utang chip: the loan being paid. Required — never inferred. */
+  liabilityId?: string | null;
+  /** Explicit link to a planned bill. */
+  budgetLineId?: string | null;
+  /** Person confirmed paying more than what is still owed. */
+  confirmOverpay?: boolean;
 };
 
 export type LogSaveFeedback = {
@@ -96,7 +129,10 @@ export function moreParticulars(
   direction: SimpleDirection,
 ): { id: string; name: string }[] {
   const chips = chipsForDirection(direction);
-  const used = new Set(chips.map((chip) => chip.particularId));
+  const used = new Set(chips.map((chip) => chip.particularId).filter(Boolean));
+  if (direction === "out") {
+    for (const bill of billParticulars(state)) used.add(bill.id);
+  }
   const wantKind = direction === "in" ? "income" : "expense";
   return state.particulars.filter((particular) => {
     if (used.has(particular.id)) return false;
@@ -109,7 +145,10 @@ export function moreParticulars(
 export function unpaidPlanLines(state: AppState, month: string): BudgetLine[] {
   return summarizeMonthBudget(state, month).lines.filter(
     (line) =>
-      line.status !== "paid" && ((line.income || 0) > 0 || (line.expense || 0) > 0),
+      // Category spending limits are not bills to pay.
+      line.lineType !== "limit" &&
+      line.status !== "paid" &&
+      ((line.income || 0) > 0 || (line.expense || 0) > 0),
   );
 }
 
@@ -149,29 +188,14 @@ export function previousMonthWithPlan(
   return months[months.length - 1] ?? null;
 }
 
-function monthEnd(key: string): string {
-  const [year, month] = key.split("-").map(Number);
-  return `${key}-${String(new Date(year, month, 0).getDate()).padStart(2, "0")}`;
-}
-
-function shiftIso(iso: string, fromKey: string, toKey: string): string {
-  if (!iso) return "";
-  const day = Number((iso.startsWith(fromKey) ? iso : `${fromKey}-01`).slice(-2));
-  const last = Number(monthEnd(toKey).slice(-2));
-  const safe = Number.isFinite(day) && day > 0 ? Math.min(day, last) : 1;
-  return `${toKey}-${String(safe).padStart(2, "0")}`;
-}
-
-function unpaidBillLine(
-  state: AppState,
-  month: string,
-): BudgetLine | undefined {
-  return unpaidPlanLines(state, month).find((line) => {
-    if ((line.expense || 0) <= 0) return false;
-    if (isDebtLine(state, line)) return false;
-    if (line.particularId && BILL_PARTICULAR_IDS.has(line.particularId)) return true;
-    return true;
-  });
+/**
+ * Unpaid planned bills (non-debt expense lines) for a month. The person picks
+ * one explicitly to link an expense; nothing is auto-selected.
+ */
+export function billLinesForMonth(state: AppState, month: string): BudgetLine[] {
+  return unpaidPlanLines(state, month).filter(
+    (line) => (line.expense || 0) > 0 && !isDebtLine(state, line),
+  );
 }
 
 function isDebtLine(state: AppState, line: BudgetLine): boolean {
@@ -188,48 +212,108 @@ function isDebtLine(state: AppState, line: BudgetLine): boolean {
   return category?.tone === "loan" || category?.id === "cat-debt";
 }
 
-function matchingLiability(state: AppState, line?: BudgetLine): Account | undefined {
-  const debts = byKind(state, "liability");
-  if (debts.length === 0) return undefined;
-  const name = (line?.particular || "").trim().toLowerCase();
-  if (name) {
-    const hit = debts.find((debt) => debt.name.trim().toLowerCase() === name);
-    if (hit) return hit;
+/**
+ * Loan for a planned debt line: only an exact, unique name match counts.
+ * Never falls back to the first loan.
+ */
+function matchingLiability(state: AppState, line: BudgetLine): Account | undefined {
+  const name = (line.particular || "").trim().toLowerCase();
+  if (!name) return undefined;
+  const hits = byKind(state, "liability").filter(
+    (debt) => debt.name.trim().toLowerCase() === name,
+  );
+  return hits.length === 1 ? hits[0] : undefined;
+}
+
+export type SimpleDraftErrors = Partial<
+  Record<"amount" | "category" | "wallet" | "loan" | "bill" | "date", string>
+>;
+
+/** Field-level problems with a draft; empty object means it can be saved. */
+export function simpleDraftErrors(
+  state: AppState,
+  draft: SimpleLogDraft,
+): SimpleDraftErrors {
+  const errors: SimpleDraftErrors = {};
+  const amount = parseAmount(draft.amount);
+  if (!amount.ok) errors.amount = amount.error;
+
+  if (draft.date != null && !/^\d{4}-\d{2}-\d{2}$/.test(draft.date)) {
+    errors.date = "Choose a valid date.";
   }
-  return debts[0];
+
+  const chip = chipsForDirection(draft.direction).find((c) => c.id === draft.chipId);
+  if (!draft.particularId && !chip && !draft.budgetLineId) {
+    errors.category =
+      draft.direction === "in" ? "Choose where the money came from." : "Choose a category.";
+  }
+  if (
+    draft.direction === "out" &&
+    chip?.id === "bills" &&
+    !draft.particularId &&
+    !draft.budgetLineId
+  ) {
+    errors.category = "Choose which bill this was.";
+  }
+
+  if (draft.budgetLineId) {
+    const line = state.budgetLines.find((l) => l.id === draft.budgetLineId);
+    if (!line) errors.bill = "That planned bill no longer exists.";
+  }
+
+  const isUtang = draft.direction === "out" && chip?.id === "utang" && !draft.particularId;
+  if (isUtang) {
+    const check = checkLoanPayment(state, {
+      liabilityId: draft.liabilityId ?? null,
+      amount: amount.ok ? amount.value : 0,
+      confirmOverpay: draft.confirmOverpay,
+    });
+    if (check.error) errors.loan = check.error;
+  }
+
+  const wallets = cashAccounts(state);
+  const walletId = draft.direction === "in" ? draft.toId : draft.fromId;
+  if (walletId && !wallets.some((w) => w.id === walletId)) {
+    errors.wallet = "Choose a wallet.";
+  } else if (!walletId && !defaultCashAccount(state) && !isUtang) {
+    errors.wallet = "Add a wallet first.";
+  }
+  return errors;
 }
 
 function resolveChipParticular(
   state: AppState,
   draft: SimpleLogDraft,
 ): { particularId: string | null; particular: string; category: string } {
-  if (draft.particularId) {
-    const ref = resolveParticularRef(state.particulars, draft.particularId, "");
+  const fallbackCategory = draft.direction === "in" ? "cat-salary" : "cat-others";
+  const line = draft.budgetLineId
+    ? state.budgetLines.find((l) => l.id === draft.budgetLineId)
+    : undefined;
+  if (draft.particularId || (line && !draft.particularId)) {
+    const ref = resolveParticularRef(
+      state.particulars,
+      draft.particularId ?? line?.particularId,
+      draft.particularId ? "" : (line?.particular ?? ""),
+    );
     const particular = state.particulars.find((item) => item.id === ref.particularId);
     return {
       particularId: ref.particularId,
       particular: ref.particular,
-      category: particular?.categoryId ?? (draft.direction === "in" ? "cat-salary" : "cat-others"),
+      category: particular?.categoryId ?? fallbackCategory,
     };
   }
 
-  const chips = chipsForDirection(draft.direction);
-  const chip = chips.find((item) => item.id === draft.chipId) ?? chips[0];
-  let particularId = chip?.particularId ?? null;
-
-  if (draft.direction === "out" && chip?.id === "bills") {
-    const bill = unpaidBillLine(state, (draft.date ?? todayIso()).slice(0, 7));
-    if (bill?.particularId) particularId = bill.particularId;
-  }
-
-  const ref = resolveParticularRef(state.particulars, particularId, chip?.label ?? "");
+  const chip = chipsForDirection(draft.direction).find((item) => item.id === draft.chipId);
+  const ref = resolveParticularRef(
+    state.particulars,
+    chip?.particularId || null,
+    chip?.label ?? "",
+  );
   const particular = state.particulars.find((item) => item.id === ref.particularId);
   return {
     particularId: ref.particularId,
     particular: ref.particular || chip?.label || "",
-    category:
-      particular?.categoryId ??
-      (draft.direction === "in" ? "cat-salary" : "cat-others"),
+    category: particular?.categoryId ?? fallbackCategory,
   };
 }
 
@@ -237,22 +321,18 @@ export function buildSimpleTransaction(
   state: AppState,
   draft: SimpleLogDraft,
 ): Omit<Transaction, "id"> | null {
-  const amount = Math.round(draft.amount * 100) / 100;
-  if (!Number.isFinite(amount) || amount <= 0) return null;
+  if (Object.keys(simpleDraftErrors(state, draft)).length > 0) return null;
+  const parsed = parseAmount(draft.amount);
+  if (!parsed.ok) return null;
+  const amount = parsed.value;
 
   const cash = defaultCashAccount(state);
   const date = draft.date ?? todayIso();
   const tags = resolveChipParticular(state, draft);
-  const fromCash =
-    draft.fromId && cashAccounts(state).some((account) => account.id === draft.fromId)
-      ? draft.fromId
-      : (cash?.id ?? null);
+  const note = draft.note?.trim() ?? "";
+  const budgetLineId = draft.budgetLineId ?? null;
 
   if (draft.direction === "in") {
-    const toId =
-      draft.toId && cashAccounts(state).some((account) => account.id === draft.toId)
-        ? draft.toId
-        : (cash?.id ?? null);
     return {
       date,
       kind: "income",
@@ -261,14 +341,16 @@ export function buildSimpleTransaction(
       particular: tags.particular,
       particularId: tags.particularId,
       fromId: null,
-      toId,
-      note: "",
+      toId: draft.toId || (cash?.id ?? null),
+      note,
+      budgetLineId,
     };
   }
 
+  const fromCash = draft.fromId || (cash?.id ?? null);
   const chip = SPEND_CHIPS.find((item) => item.id === draft.chipId);
-  const debt = matchingLiability(state);
-  if (chip?.id === "utang" && debt) {
+  if (chip?.id === "utang" && !draft.particularId) {
+    // Explicit loan only (validated above); no first-loan fallback.
     return {
       date,
       kind: "payment",
@@ -277,10 +359,9 @@ export function buildSimpleTransaction(
       particular: tags.particular,
       particularId: tags.particularId,
       fromId: fromCash,
-      toId: draft.toId && byKind(state, "liability").some((item) => item.id === draft.toId)
-        ? draft.toId
-        : debt.id,
-      note: "",
+      toId: draft.liabilityId ?? null,
+      note,
+      budgetLineId,
     };
   }
 
@@ -294,11 +375,16 @@ export function buildSimpleTransaction(
     particularId: tags.particularId,
     fromId: fromCash,
     toId: null,
-    note: "",
+    note,
+    budgetLineId,
   };
 }
 
 export function applySimpleLog(state: AppState, draft: SimpleLogDraft): AppState | null {
+  // Idempotent: a repeated submit with the same id never adds a second row.
+  if (draft.id && state.transactions.some((row) => row.id === draft.id)) {
+    return state;
+  }
   const payload = buildSimpleTransaction(state, draft);
   if (!payload) return null;
   const ref = resolveParticularRef(
@@ -306,31 +392,88 @@ export function applySimpleLog(state: AppState, draft: SimpleLogDraft): AppState
     payload.particularId,
     payload.particular,
   );
-  return {
+  let accounts = state.accounts;
+  let installmentId: string | undefined;
+  if (payload.kind === "payment" && payload.toId) {
+    const loan = findLiability(state, payload.toId);
+    if (loan?.mode === "installment" && loan.schedule?.length) {
+      const paid = payNextInstallment(accounts, loan, payload.amount);
+      if (paid) {
+        accounts = paid.accounts;
+        installmentId = paid.installmentId;
+      }
+    }
+  }
+  const next: AppState = {
     ...state,
+    accounts,
     transactions: [
       ...state.transactions,
-      { ...payload, ...ref, id: uid() },
+      {
+        ...payload,
+        ...ref,
+        id: draft.id ?? uid(),
+        ...(installmentId ? { installmentId } : {}),
+      },
     ],
   };
+  return syncBillStatus(next, [payload.budgetLineId]);
 }
 
 export function applyUpdateTransaction(
   state: AppState,
   tx: Transaction,
 ): AppState | null {
-  if (!state.transactions.some((row) => row.id === tx.id)) return null;
+  const current = state.transactions.find((row) => row.id === tx.id);
+  if (!current) return null;
   const ref = resolveParticularRef(
     state.particulars,
     tx.particularId,
     tx.particular,
   );
-  return {
+  let nextTx: Transaction = { ...tx, ...ref };
+  let accounts = state.accounts;
+
+  // Keep installment schedules consistent with the edited payment.
+  if (current.installmentId && current.toId) {
+    const sameLoan = nextTx.kind === "payment" && nextTx.toId === current.toId;
+    if (!sameLoan) {
+      accounts = unpayInstallmentRow(
+        accounts,
+        current.toId,
+        current.installmentId,
+        current.amount,
+      );
+      nextTx = { ...nextTx, installmentId: undefined };
+    } else if (nextTx.amount !== current.amount) {
+      accounts = repriceInstallmentRow(
+        accounts,
+        current.toId,
+        current.installmentId,
+        current.amount,
+        nextTx.amount,
+      );
+    }
+  }
+  if (nextTx.kind === "payment" && nextTx.toId && !nextTx.installmentId) {
+    const loan = accounts.find((a) => a.id === nextTx.toId);
+    if (loan?.kind === "liability" && loan.mode === "installment" && loan.schedule?.length) {
+      const paid = payNextInstallment(accounts, loan, nextTx.amount);
+      if (paid) {
+        accounts = paid.accounts;
+        nextTx = { ...nextTx, installmentId: paid.installmentId };
+      }
+    }
+  }
+
+  const next: AppState = {
     ...state,
+    accounts,
     transactions: state.transactions.map((row) =>
-      row.id === tx.id ? { ...tx, ...ref } : row,
+      row.id === tx.id ? nextTx : row,
     ),
   };
+  return syncBillStatus(next, [current.budgetLineId, nextTx.budgetLineId]);
 }
 
 export function applySimpleUpdate(
@@ -338,10 +481,19 @@ export function applySimpleUpdate(
   id: string,
   draft: SimpleLogDraft,
 ): AppState | null {
-  const payload = buildSimpleTransaction(state, draft);
-  if (!payload) return null;
   const current = state.transactions.find((row) => row.id === id);
-  if (!current || current.kind === "adjustment") return null;
+  if (!current || current.kind === "adjustment" || current.kind === "borrow") {
+    return null;
+  }
+  // Validate against books without this row so its own amount does not
+  // count against the remaining loan balance.
+  const without = applyRemoveTransaction(state, id);
+  const payload = buildSimpleTransaction(without, {
+    ...draft,
+    budgetLineId:
+      draft.budgetLineId !== undefined ? draft.budgetLineId : current.budgetLineId,
+  });
+  if (!payload) return null;
   const ref = resolveParticularRef(
     state.particulars,
     payload.particularId,
@@ -353,7 +505,7 @@ export function applySimpleUpdate(
     ...ref,
     id,
     date: draft.date ?? current.date,
-    note: current.note,
+    note: draft.note !== undefined ? draft.note.trim() : current.note,
     installmentId: current.installmentId,
   });
 }
@@ -361,9 +513,20 @@ export function applySimpleUpdate(
 export function chipIdForParticular(
   direction: SimpleDirection,
   particularId: string | null | undefined,
+  state?: AppState,
 ): string {
   const chips = chipsForDirection(direction);
-  return chips.find((chip) => chip.particularId === particularId)?.id ?? "";
+  const hit = chips.find((chip) => chip.particularId && chip.particularId === particularId);
+  if (hit) return hit.id;
+  if (
+    direction === "out" &&
+    state &&
+    particularId &&
+    billParticulars(state).some((p) => p.id === particularId)
+  ) {
+    return "bills";
+  }
+  return "";
 }
 
 function paymentFromLine(
@@ -372,39 +535,31 @@ function paymentFromLine(
   amount: number,
   date: string,
   cashId: string | null,
+  liabilityId?: string | null,
 ): { accounts: Account[]; transaction: Transaction } | null {
-  const debt = matchingLiability(state, line);
+  const debt = liabilityId
+    ? findLiability(state, liabilityId)
+    : matchingLiability(state, line);
   if (!debt) return null;
+  const ref = resolveParticularRef(
+    state.particulars,
+    line.particularId,
+    line.particular,
+  );
 
   if (debt.mode === "installment" && debt.schedule?.length) {
     const next = nextUnpaid(debt.schedule);
-    if (next) {
-      const before = scheduleRemaining(debt.openingBalance, debt.schedule);
-      const after = Math.max(0, Math.round((before - next.amount) * 100) / 100);
-      const accounts = state.accounts.map((account) =>
-        account.id !== debt.id
-          ? account
-          : {
-              ...account,
-              schedule: account.schedule?.map((row) =>
-                row.id === next.id
-                  ? { ...row, status: "paid" as const, balanceAfter: after }
-                  : row,
-              ),
-            },
-      );
-      const ref = resolveParticularRef(
-        state.particulars,
-        line.particularId,
-        line.particular,
-      );
+    // Pay what is still due on that installment (after partial payments).
+    const due = next ? installmentShortfall(next) : 0;
+    const paid = next && due > 0 ? payNextInstallment(state.accounts, debt, due) : null;
+    if (next && paid) {
       return {
-        accounts,
+        accounts: paid.accounts,
         transaction: {
           id: uid(),
           date,
           kind: "payment",
-          amount: next.amount,
+          amount: due,
           category: "debt",
           particular: ref.particular,
           particularId: ref.particularId,
@@ -412,16 +567,12 @@ function paymentFromLine(
           toId: debt.id,
           note: `${debt.name} · ${next.due}`,
           installmentId: next.id,
+          budgetLineId: line.id,
         },
       };
     }
   }
 
-  const ref = resolveParticularRef(
-    state.particulars,
-    line.particularId,
-    line.particular,
-  );
   return {
     accounts: state.accounts,
     transaction: {
@@ -435,17 +586,26 @@ function paymentFromLine(
       fromId: cashId,
       toId: debt.id,
       note: "",
+      budgetLineId: line.id,
     },
   };
 }
 
+/**
+ * "I paid this" on a planned line. A debt line only reduces a loan when the
+ * loan is given explicitly (liabilityId) or its name matches exactly and
+ * uniquely; otherwise it is recorded as debt-category spending linked to the
+ * line, never applied to some other loan.
+ */
 export function payBudgetLine(
   state: AppState,
   lineId: string,
   today = todayIso(),
+  liabilityId?: string | null,
 ): AppState | null {
   const line = state.budgetLines.find((item) => item.id === lineId);
   if (!line || line.status === "paid") return null;
+  if (liabilityId && !findLiability(state, liabilityId)) return null;
 
   const amount = Math.round(
     ((line.income || 0) > 0 && (line.expense || 0) <= 0
@@ -479,9 +639,10 @@ export function payBudgetLine(
       fromId: null,
       toId: cashId,
       note: "",
+      budgetLineId: line.id,
     };
   } else if (isDebtLine(state, line)) {
-    const paid = paymentFromLine(state, line, amount, today, cashId);
+    const paid = paymentFromLine(state, line, amount, today, cashId, liabilityId);
     if (!paid) {
       const ref = resolveParticularRef(
         state.particulars,
@@ -500,6 +661,7 @@ export function payBudgetLine(
         fromId: cashId,
         toId: null,
         note: "",
+        budgetLineId: line.id,
       };
     } else {
       accounts = paid.accounts;
@@ -525,6 +687,7 @@ export function payBudgetLine(
       fromId: cashId,
       toId: null,
       note: "",
+      budgetLineId: line.id,
     };
   }
 
@@ -532,55 +695,20 @@ export function payBudgetLine(
     ...state,
     accounts,
     budgetLines: state.budgetLines.map((item) =>
-      item.id === lineId
-        ? { ...item, status: "paid", actual: transaction.amount }
-        : item,
+      // The linked transaction is the record; no manual actual is written.
+      item.id === lineId ? { ...item, status: "paid" } : item,
     ),
     transactions: [...state.transactions, transaction],
   };
 }
 
+/** Copy a month's budget targets (see copyBudgetTargets). */
 export function copyBudgetMonth(
   state: AppState,
   fromKey: string,
   toKey: string,
 ): AppState | null {
-  if (!fromKey || !toKey || fromKey === toKey) return null;
-  if (state.budgetPeriods.some((period) => periodOverlapsMonth(period, toKey))) {
-    return null;
-  }
-
-  const sourcePeriods = state.budgetPeriods.filter((period) =>
-    periodOverlapsMonth(period, fromKey),
-  );
-  if (sourcePeriods.length === 0) return null;
-
-  const budgetPeriods: BudgetPeriod[] = [...state.budgetPeriods];
-  const budgetLines: BudgetLine[] = [...state.budgetLines];
-
-  for (const period of sourcePeriods) {
-    const nextPeriod: BudgetPeriod = {
-      id: uid(),
-      start: shiftIso(period.start, fromKey, toKey) || `${toKey}-01`,
-      end: shiftIso(period.end, fromKey, toKey) || monthEnd(toKey),
-    };
-    budgetPeriods.push(nextPeriod);
-    const rows = state.budgetLines
-      .filter((line) => line.periodId === period.id)
-      .sort((a, b) => a.order - b.order);
-    for (const row of rows) {
-      budgetLines.push({
-        ...row,
-        id: uid(),
-        periodId: nextPeriod.id,
-        due: row.due ? shiftIso(row.due, fromKey, toKey) : "",
-        actual: null,
-        status: "unpaid",
-      });
-    }
-  }
-
-  return { ...state, budgetPeriods, budgetLines };
+  return copyBudgetTargets(state, fromKey, toKey);
 }
 
 export function logSaveFeedback(

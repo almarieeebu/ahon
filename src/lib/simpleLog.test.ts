@@ -12,6 +12,7 @@ import {
   pickDailyPrompt,
   previousMonthWithPlan,
   shouldShowWalletPicker,
+  simpleDraftErrors,
   unpaidPlanLines,
 } from "@/lib/simpleLog";
 import { accountBalances } from "@/lib/selectors";
@@ -100,21 +101,22 @@ describe("simple logging", () => {
       direction: "out",
       amount: 500,
       chipId: "utang",
+      liabilityId: card.id,
     });
     assert.equal(tx?.kind, "payment");
     assert.equal(tx?.toId, card.id);
     assert.equal(tx?.fromId, "cash-on-hand");
   });
 
-  it("maps Utang to an expense when there is no debt account", () => {
+  it("blocks an Utang payment when there is no loan to pay", () => {
     const state = presetState();
-    const tx = buildSimpleTransaction(state, {
-      direction: "out",
+    const draft = {
+      direction: "out" as const,
       amount: 500,
       chipId: "utang",
-    });
-    assert.equal(tx?.kind, "expense");
-    assert.equal(tx?.particularId, "p-debt");
+    };
+    assert.equal(buildSimpleTransaction(state, draft), null);
+    assert.match(simpleDraftErrors(state, draft).loan ?? "", /no loans/i);
   });
 
   it("hides the wallet picker when there is only one cash account", () => {
@@ -149,7 +151,9 @@ describe("payBudgetLine", () => {
     assert.ok(next);
     const line = next?.budgetLines.find((item) => item.id === "pay");
     assert.equal(line?.status, "paid");
-    assert.equal(line?.actual, 25000);
+    // No manual actual is written; the linked transaction is the record.
+    assert.equal(line?.actual, null);
+    assert.equal(next?.transactions[0]?.budgetLineId, "pay");
     assert.equal(next?.transactions[0]?.kind, "income");
     assert.equal(accountBalances(next!)["cash-on-hand"], 26000);
   });
@@ -160,7 +164,8 @@ describe("payBudgetLine", () => {
     const next = payBudgetLine(state, "electric", "2026-08-10");
     const line = next?.budgetLines.find((item) => item.id === "electric");
     assert.equal(line?.status, "paid");
-    assert.equal(line?.actual, 2000);
+    assert.equal(line?.actual, null);
+    assert.equal(next?.transactions[0]?.budgetLineId, "electric");
     assert.equal(next?.transactions[0]?.kind, "expense");
     assert.equal(accountBalances(next!)["cash-on-hand"], 3000);
   });

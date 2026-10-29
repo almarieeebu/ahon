@@ -13,7 +13,12 @@ import {
 import { useAuth } from "@/context/AuthContext";
 import { presetState } from "@/lib/defaults";
 import { monthKey, todayIso, uid } from "@/lib/money";
-import { emptyBudgetLine } from "@/lib/periodBudget";
+import {
+  createBudget,
+  emptyBudgetLine,
+  setLegacyReview,
+  type NewBudgetInput,
+} from "@/lib/periodBudget";
 import { resolveParticularRef } from "@/lib/refs";
 import {
   applySimpleLog,
@@ -23,6 +28,17 @@ import {
   payBudgetLine,
   type SimpleLogDraft,
 } from "@/lib/simpleLog";
+import {
+  applyAddExistingLoan,
+  applyNewBorrowing,
+  type ExistingLoanInput,
+  type NewBorrowingInput,
+} from "@/lib/loans";
+import {
+  applyLoanPayment,
+  applyRemoveTransaction,
+  installmentShortfall,
+} from "@/lib/payments";
 import { scheduleRemaining } from "@/lib/schedule";
 import { accountBalances } from "@/lib/selectors";
 import { loadState, saveState } from "@/lib/storage";
@@ -38,6 +54,7 @@ import type {
   BudgetLine,
   BudgetPeriod,
   Category,
+  LegacyReview,
   Particular,
   Transaction,
 } from "@/lib/types";
@@ -55,8 +72,13 @@ type FinanceValue = {
   addTransaction: (tx: Omit<Transaction, "id">) => void;
   logSimple: (draft: SimpleLogDraft) => void;
   updateSimple: (id: string, draft: SimpleLogDraft) => void;
-  payPlanLine: (lineId: string) => void;
+  payPlanLine: (lineId: string, liabilityId?: string | null) => void;
+  /** Copy budget targets only; does nothing if the month has a budget. */
   copyMonthPlan: (fromKey: string, toKey: string) => void;
+  /** New budget (validated; idempotent by input.id). */
+  createMonthBudget: (input: NewBudgetInput) => void;
+  /** Keep an earlier manual amount as a note, hide it, or undo (null). */
+  reviewLegacyEntry: (lineId: string, review: LegacyReview | null) => void;
   updateTransaction: (tx: Transaction) => void;
   removeTransaction: (id: string) => void;
   upsertAccount: (account: Account) => void;
@@ -72,6 +94,12 @@ type FinanceValue = {
   removeBudgetLine: (id: string) => void;
   addBudgetLine: (periodId: string) => void;
   setCurrentBalance: (id: string, amount: number) => void;
+  /** Existing debt: liability only, cash unchanged. Pass a fixed id. */
+  addExistingLoan: (input: ExistingLoanInput) => void;
+  /** Loan received now: liability and receiving wallet both rise (not income). */
+  addNewBorrowing: (input: NewBorrowingInput) => void;
+  /** Payment toward one explicit loan (partial payments allowed). */
+  recordLoanPayment: (input: Parameters<typeof applyLoanPayment>[1]) => void;
   payInstallment: (
     accountId: string,
     installmentId: string,
@@ -213,42 +241,40 @@ export function FinanceProvider({ children }: { children: ReactNode }) {
     setState((prev) => applySimpleUpdate(prev, id, draft) ?? prev);
   }, []);
 
-  const payPlanLine = useCallback((lineId: string) => {
-    setState((prev) => payBudgetLine(prev, lineId) ?? prev);
-  }, []);
+  const payPlanLine = useCallback(
+    (lineId: string, liabilityId?: string | null) => {
+      setState(
+        (prev) => payBudgetLine(prev, lineId, todayIso(), liabilityId) ?? prev,
+      );
+    },
+    [],
+  );
 
   const copyMonthPlan = useCallback((fromKey: string, toKey: string) => {
     setState((prev) => copyBudgetMonth(prev, fromKey, toKey) ?? prev);
   }, []);
+
+  const createMonthBudget = useCallback((input: NewBudgetInput) => {
+    setState((prev) => {
+      const result = createBudget(prev, input);
+      return result.ok ? result.state : prev;
+    });
+  }, []);
+
+  const reviewLegacyEntry = useCallback(
+    (lineId: string, review: LegacyReview | null) => {
+      setState((prev) => setLegacyReview(prev, lineId, review));
+    },
+    [],
+  );
 
   const updateTransaction = useCallback((tx: Transaction) => {
     setState((prev) => applyUpdateTransaction(prev, tx) ?? prev);
   }, []);
 
   const removeTransaction = useCallback((id: string) => {
-    setState((prev) => {
-      const tx = prev.transactions.find((t) => t.id === id);
-      let accounts = prev.accounts;
-      if (tx?.installmentId && tx.toId) {
-        accounts = prev.accounts.map((a) =>
-          a.id !== tx.toId
-            ? a
-            : {
-                ...a,
-                schedule: a.schedule?.map((r) =>
-                  r.id === tx.installmentId
-                    ? { ...r, status: "unpaid" as const, balanceAfter: null }
-                    : r,
-                ),
-              },
-        );
-      }
-      return {
-        ...prev,
-        accounts,
-        transactions: prev.transactions.filter((t) => t.id !== id),
-      };
-    });
+    // Reverses wallet/loan balances (derived), installment and bill status.
+    setState((prev) => applyRemoveTransaction(prev, id));
   }, []);
 
   const upsertAccount = useCallback((account: Account) => {
@@ -434,7 +460,14 @@ export function FinanceProvider({ children }: { children: ReactNode }) {
       const current = accountBalances(prev)[id] ?? 0;
       const target = Math.round(amount * 100) / 100;
       const delta = Math.round((target - current) * 100) / 100;
-      if (Math.abs(delta) < 0.005) return prev;
+      // Stating the current balance makes an incomplete wallet complete.
+      const accounts =
+        account.balanceKnown === false
+          ? prev.accounts.map((a) => (a.id === id ? { ...a, balanceKnown: true } : a))
+          : prev.accounts;
+      if (Math.abs(delta) < 0.005) {
+        return accounts === prev.accounts ? prev : { ...prev, accounts };
+      }
 
       const abs = Math.abs(delta);
       let fromId: string | null = null;
@@ -460,9 +493,30 @@ export function FinanceProvider({ children }: { children: ReactNode }) {
         toId,
         note: "Bank reconciliation",
       };
-      return { ...prev, transactions: [...prev.transactions, tx] };
+      return { ...prev, accounts, transactions: [...prev.transactions, tx] };
     });
   }, []);
+
+  const addExistingLoan = useCallback((input: ExistingLoanInput) => {
+    setState((prev) => {
+      const result = applyAddExistingLoan(prev, input);
+      return result.ok ? result.state : prev;
+    });
+  }, []);
+
+  const addNewBorrowing = useCallback((input: NewBorrowingInput) => {
+    setState((prev) => {
+      const result = applyNewBorrowing(prev, input);
+      return result.ok ? result.state : prev;
+    });
+  }, []);
+
+  const recordLoanPayment = useCallback(
+    (input: Parameters<typeof applyLoanPayment>[1]) => {
+      setState((prev) => applyLoanPayment(prev, input) ?? prev);
+    },
+    [],
+  );
 
   const payInstallment = useCallback(
     (
@@ -480,11 +534,14 @@ export function FinanceProvider({ children }: { children: ReactNode }) {
         if (!account?.schedule) return prev;
         const row = account.schedule.find((r) => r.id === installmentId);
         if (!row || row.status === "paid") return prev;
+        // Pay only what is still due on this row (after partial payments).
+        const due = installmentShortfall(row);
+        if (due <= 0) return prev;
         const before = scheduleRemaining(
           account.openingBalance,
           account.schedule,
         );
-        const after = Math.max(0, Math.round((before - row.amount) * 100) / 100);
+        const after = Math.max(0, Math.round((before - due) * 100) / 100);
         const accounts = prev.accounts.map((a) =>
           a.id !== accountId
             ? a
@@ -492,7 +549,12 @@ export function FinanceProvider({ children }: { children: ReactNode }) {
                 ...a,
                 schedule: a.schedule?.map((r) =>
                   r.id === installmentId
-                    ? { ...r, status: "paid" as const, balanceAfter: after }
+                    ? {
+                        ...r,
+                        status: "paid" as const,
+                        balanceAfter: after,
+                        paidAmount: Math.round(((r.paidAmount ?? 0) + due) * 100) / 100,
+                      }
                     : r,
                 ),
               },
@@ -506,7 +568,7 @@ export function FinanceProvider({ children }: { children: ReactNode }) {
           id: uid(),
           date: row.due,
           kind: "payment",
-          amount: row.amount,
+          amount: due,
           category: meta?.category || "debt",
           particular: ref.particular,
           particularId: ref.particularId,
@@ -532,11 +594,17 @@ export function FinanceProvider({ children }: { children: ReactNode }) {
                 ...a,
                 schedule: a.schedule?.map((r) =>
                   r.id === installmentId
-                    ? { ...r, status: "unpaid" as const, balanceAfter: null }
+                    ? {
+                        ...r,
+                        status: "unpaid" as const,
+                        balanceAfter: null,
+                        paidAmount: undefined,
+                      }
                     : r,
                 ),
               },
         ),
+        // Undo removes every payment linked to this installment.
         transactions: prev.transactions.filter(
           (t) => t.installmentId !== installmentId,
         ),
@@ -577,6 +645,8 @@ export function FinanceProvider({ children }: { children: ReactNode }) {
       updateSimple,
       payPlanLine,
       copyMonthPlan,
+      createMonthBudget,
+      reviewLegacyEntry,
       updateTransaction,
       removeTransaction,
       upsertAccount,
@@ -592,6 +662,9 @@ export function FinanceProvider({ children }: { children: ReactNode }) {
       removeBudgetLine,
       addBudgetLine,
       setCurrentBalance,
+      addExistingLoan,
+      addNewBorrowing,
+      recordLoanPayment,
       payInstallment,
       unpayInstallment,
       updateState: patch,
@@ -611,6 +684,8 @@ export function FinanceProvider({ children }: { children: ReactNode }) {
       updateSimple,
       payPlanLine,
       copyMonthPlan,
+      createMonthBudget,
+      reviewLegacyEntry,
       updateTransaction,
       removeTransaction,
       upsertAccount,
@@ -626,6 +701,9 @@ export function FinanceProvider({ children }: { children: ReactNode }) {
       removeBudgetLine,
       addBudgetLine,
       setCurrentBalance,
+      addExistingLoan,
+      addNewBorrowing,
+      recordLoanPayment,
       payInstallment,
       unpayInstallment,
       patch,

@@ -70,3 +70,38 @@ export function dueLabel(day: number): string {
           : "th";
   return `${day}${suffix} of the month`;
 }
+
+/** Largest amount Ahon accepts for one entry (guards against typos / overflow). */
+export const MAX_AMOUNT = 1e12;
+
+export function roundCentavos(n: number): number {
+  return Math.round((n + Number.EPSILON) * 100) / 100;
+}
+
+export type AmountCheck =
+  | { ok: true; value: number }
+  | { ok: false; error: string };
+
+/**
+ * Validate a typed peso amount: accepts "1,250.50" or numbers, rejects
+ * empty / NaN / zero / negative / huge values, and rounds to centavos.
+ */
+export function parseAmount(input: string | number | null | undefined): AmountCheck {
+  const raw =
+    typeof input === "number"
+      ? input
+      : String(input ?? "")
+          .trim()
+          .replace(/[₱,\s]/g, "");
+  if (raw === "") return { ok: false, error: "Enter an amount." };
+  if (typeof raw === "string" && !/^-?(\d+\.?\d*|\.\d+)$/.test(raw)) {
+    return { ok: false, error: "Enter a number, like 150 or 150.50." };
+  }
+  const n = typeof raw === "number" ? raw : Number(raw);
+  if (!Number.isFinite(n)) return { ok: false, error: "Enter a number, like 150 or 150.50." };
+  if (n < 0) return { ok: false, error: "Amount cannot be negative." };
+  if (n > MAX_AMOUNT) return { ok: false, error: "That amount is too large. Check the digits." };
+  const value = roundCentavos(n);
+  if (value <= 0) return { ok: false, error: "Amount must be more than ₱0." };
+  return { ok: true, value };
+}

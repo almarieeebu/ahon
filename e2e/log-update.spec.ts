@@ -10,7 +10,8 @@ async function enterApp(page: Page) {
   const local = page.getByTestId("landing-local");
   if (await local.isVisible()) await local.click();
   else await page.getByTestId("landing-open").click();
-  await page.getByTestId("quick-start-skip").click();
+  // Setup is optional: the app opens on Home with first-use actions.
+  await expect(page.getByTestId("first-use")).toBeVisible();
   await page.getByTestId("tab-ledger").click();
   await expect(page.getByRole("heading", { name: /This month/ })).toBeVisible();
 }
@@ -31,6 +32,8 @@ test.describe("Log update", () => {
     await logAmount(page, "150");
     await expect(visible(page, "log-row-amount")).toContainText("150");
 
+    // Rows open a details panel; Edit is there.
+    await visible(page, "log-row").click();
     await visible(page, "log-edit").click();
     await expect(page.getByRole("heading", { name: "Update log" })).toBeVisible();
     await expect(page.getByTestId("log-amount")).toHaveValue("150");
@@ -50,6 +53,8 @@ test.describe("Log update", () => {
     await page.getByTestId("log-add").click();
     await logAmount(page, "150");
 
+    // Rows open a details panel; Edit is there.
+    await visible(page, "log-row").click();
     await visible(page, "log-edit").click();
     await page.getByRole("button", { name: "More details" }).click();
     await expect(page.getByTestId("record-amount")).toHaveValue("150");

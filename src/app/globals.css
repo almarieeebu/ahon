@@ -527,3 +527,45 @@ body {
 .budget-sheet tr.tone-default .period-cell {
   background: #fafafa;
 }
+
+/* Details panel: bottom sheet on phones, drawer from the right on wide screens */
+@keyframes panel-up {
+  from {
+    transform: translateY(24px);
+    opacity: 0;
+  }
+}
+
+@keyframes panel-in {
+  from {
+    transform: translateX(32px);
+    opacity: 0;
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+.panel-sheet {
+  animation: panel-up 180ms ease-out;
+}
+
+.panel-backdrop {
+  animation: fade-in 180ms ease-out;
+}
+
+@media (min-width: 1024px) {
+  .panel-sheet {
+    animation-name: panel-in;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .panel-sheet,
+  .panel-backdrop {
+    animation: none;
+  }
+}

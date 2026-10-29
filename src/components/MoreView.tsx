@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useRef, useState } from "react";
+import { FormEvent, useRef, useState } from "react";
 import { AccountsPanel } from "@/components/AccountsPanel";
 import { BudgetPanel } from "@/components/BudgetPanel";
 import { Modal } from "@/components/Modal";
@@ -14,7 +14,7 @@ type MoreTab = "accounts" | "particulars" | "budget" | "profile";
 export type MoreFocusTab = MoreTab;
 
 const MORE_TABS: { id: MoreTab; label: string }[] = [
-  { id: "budget", label: "Money plan" },
+  { id: "budget", label: "Income & recurring bills" },
   { id: "particulars", label: "Bill & income names" },
   { id: "accounts", label: "Cash & wallets" },
   { id: "profile", label: "Profile" },
@@ -49,9 +49,12 @@ export function MoreView({
     state.categories[0]?.id ?? "",
   );
 
-  useEffect(() => {
+  // Jump to a newly requested tab (adjust state during render).
+  const [lastFocus, setLastFocus] = useState(focusTab);
+  if (focusTab !== lastFocus) {
+    setLastFocus(focusTab);
     if (focusTab) setTab(focusTab);
-  }, [focusTab]);
+  }
 
   function downloadBackup() {
     const blob = new Blob([exportState(state)], { type: "application/json" });
@@ -102,13 +105,15 @@ export function MoreView({
 
   return (
     <section className="space-y-6">
-      <div className="flex flex-wrap gap-2">
+      {/* Wide screens list these pages in the sidebar. */}
+      <div className="flex flex-wrap gap-2 lg:hidden">
         {MORE_TABS.map((item) => (
           <button
             key={item.id}
             type="button"
             onClick={() => setTab(item.id)}
-            className={`rounded-full px-3 py-1.5 text-xs font-semibold ${
+            aria-pressed={tab === item.id}
+            className={`min-h-10 rounded-full px-3.5 text-sm font-semibold ${
               tab === item.id
                 ? "bg-ink text-paper"
                 : "border border-paper-line bg-white text-ink-muted"
@@ -127,7 +132,7 @@ export function MoreView({
             <div>
               <h2 className="font-display text-lg font-semibold">Bill & income names</h2>
               <p className="mt-1 text-sm text-ink-muted">
-                Optional reusable names for your Log and plan. Each name belongs to a spending group.
+                Optional reusable names for Activity and Budget. Each name belongs to a spending group.
               </p>
             </div>
             <button
@@ -224,7 +229,7 @@ export function MoreView({
                   required={state.categories.length > 0}
                 >
                   {state.categories.length === 0 ? (
-                    <option value="">Add a spending group in Money plan first</option>
+                    <option value="">Add a spending group in Income & recurring bills first</option>
                   ) : (
                     state.categories.map((c) => (
                       <option key={c.id} value={c.id}>
@@ -248,9 +253,9 @@ export function MoreView({
       {tab === "budget" ? (
         <div className="space-y-6">
           <div>
-            <h2 className="font-display text-lg font-semibold">Money plan</h2>
+            <h2 className="font-display text-lg font-semibold">Income &amp; recurring bills</h2>
             <p className="mt-1 text-sm text-ink-muted">
-              Your regular pay, bills, cash cushion, and spending groups. Detailed period planning lives on Plan.
+              Your regular pay, bills, cash cushion, and spending groups. Monthly spending limits live on the Budget tab.
             </p>
           </div>
           <label className="block text-sm">

@@ -1,8 +1,9 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useMemo, useState } from "react";
 import { useFinance } from "@/context/FinanceContext";
-import { todayIso } from "@/lib/money";
+import { parseAmount, php, todayIso } from "@/lib/money";
+import { applyRemoveTransaction, checkLoanPayment } from "@/lib/payments";
 import { UNTRACKED_PAYMENT_SOURCE } from "@/lib/paymentSource";
 import { findParticular } from "@/lib/refs";
 import { nextUnpaid } from "@/lib/schedule";
@@ -52,23 +53,24 @@ export function RecordForm({
   );
   const [date, setDate] = useState(initial?.date ?? todayIso());
   const [category, setCategory] = useState(initial?.category ?? "");
-  const [particularId, setParticularId] = useState(
+  const [particularChoice, setParticularId] = useState(
     initial?.particularId ??
       findParticular(state.particulars, {
         id: initial?.particularId,
         name: initial?.particular,
       })?.id ??
-      state.particulars[0]?.id ??
       "",
   );
-  const [fromId, setFromId] = useState(
+  const [fromChoice, setFromId] = useState(
     initialFromId(initial, defaultCashId),
   );
   const [toId, setToId] = useState(
-    initial?.toId ?? savings[0]?.id ?? debts[0]?.id ?? "",
+    // Payments never preselect a loan: the person must choose one.
+    initial?.toId ?? "",
   );
   const [note, setNote] = useState(initial?.note ?? "");
   const [saved, setSaved] = useState(false);
+  const [error, setError] = useState("");
 
   const particularOptions = useMemo(() => {
     return state.particulars.filter((p) => {
@@ -79,39 +81,15 @@ export function RecordForm({
     });
   }, [kind, state.categories, state.particulars]);
 
-  useEffect(() => {
-    if (!initial) return;
-    setKind(initial.kind);
-    setAmount(String(initial.amount));
-    setDate(initial.date);
-    setCategory(initial.category);
-    setParticularId(
-      initial.particularId ??
-        findParticular(state.particulars, {
-          id: initial.particularId,
-          name: initial.particular,
-        })?.id ??
-        "",
-    );
-    setFromId(initialFromId(initial, defaultCashId));
-    setToId(initial.toId ?? "");
-    setNote(initial.note);
-    // Reload only when a different row is opened. `cash` is a new array each
-    // render and must not reset the fields the person is editing.
-  }, [initial, defaultCashId, state.particulars]);
-
-  useEffect(() => {
-    if (!particularId) return;
-    if (!particularOptions.some((p) => p.id === particularId)) {
-      setParticularId(particularOptions[0]?.id ?? "");
-    }
-  }, [particularId, particularOptions]);
-
-  useEffect(() => {
-    if (kind === "expense" && fromId && !spendFrom.some((a) => a.id === fromId)) {
-      setFromId(spendFrom[0]?.id ?? "");
-    }
-  }, [fromId, kind, spendFrom]);
+  // Fields are initialised from `initial` once; callers remount with a new
+  // `key` to load a different row. Invalid choices fall back while rendering.
+  const particularId = particularOptions.some((p) => p.id === particularChoice)
+    ? particularChoice
+    : "";
+  const fromId =
+    kind === "expense" && fromChoice && !spendFrom.some((a) => a.id === fromChoice)
+      ? (spendFrom[0]?.id ?? "")
+      : fromChoice;
 
   const categoryOptions = useMemo(() => {
     if (kind === "income") {
@@ -131,7 +109,7 @@ export function RecordForm({
     ? linkedCategory.id
     : categoryOptions.some((item) => item.id === category)
       ? category
-      : (categoryOptions[0]?.id ?? "");
+      : "";
 
   const toOptions = useMemo(() => {
     if (kind === "income") return cash;
@@ -164,36 +142,52 @@ export function RecordForm({
 
   function submit(event: FormEvent) {
     event.preventDefault();
-    const value = Number(amount);
+    setError("");
     const resolvedTo =
-      kind === "expense" ? null : (toId || toOptions[0]?.id || null);
+      kind === "expense"
+        ? null
+        : kind === "payment" || kind === "borrow"
+          ? toId || null
+          : toId || toOptions[0]?.id || null;
+
+    if (kind === "payment") {
+      if (debts.length === 0) {
+        setError("You have no loans yet. Add a loan in Loans first, then record the payment.");
+        return;
+      }
+      if (!resolvedTo) {
+        setError("Choose which loan this payment is for.");
+        return;
+      }
+    }
 
     let resolvedFrom: string | null = null;
     if (kind === "income") {
       resolvedFrom = null;
+    } else if (kind === "borrow") {
+      // Loan received: keep the loan (fromId) and receiving wallet as saved.
+      resolvedFrom = initial?.fromId ?? null;
     } else if (kind === "payment") {
       if (fromId === UNTRACKED_PAYMENT_SOURCE) {
         resolvedFrom = null;
       } else if (fromId && payFrom.some((a) => a.id === fromId)) {
         resolvedFrom = fromId;
-      } else if (payFrom[0]?.id) {
-        resolvedFrom = payFrom[0].id;
       } else {
-        window.alert(
-          "Add a cash or savings account first, or choose “Payment came from an untracked source”.",
+        setError(
+          "Choose where the payment came from, or “Payment came from an untracked source”.",
         );
         return;
       }
     } else if (kind === "transfer") {
       if (!fromId || !payFrom.some((a) => a.id === fromId)) {
-        window.alert("Choose which account the transfer is taken from.");
+        setError("Choose which account the transfer is taken from.");
         return;
       }
       resolvedFrom = fromId;
     } else {
       resolvedFrom = fromId || spendFrom[0]?.id || null;
       if (!resolvedFrom) {
-        window.alert("Add a cash account to pay from.");
+        setError("Add a cash account to pay from.");
         return;
       }
     }
@@ -205,7 +199,7 @@ export function RecordForm({
     const categoryId = showTags
       ? categoryOptions.some((c) => c.id === resolvedCategory)
         ? resolvedCategory
-        : (categoryOptions[0]?.id ?? "")
+        : ""
       : kind === "transfer"
         ? "savings"
         : kind === "payment"
@@ -226,14 +220,46 @@ export function RecordForm({
       }
     }
 
-    if (!Number.isFinite(value) || value <= 0) return;
-    if (showTags && !categoryId) return;
+    const parsed = parseAmount(amount);
+    if (!parsed.ok) {
+      setError(parsed.error);
+      return;
+    }
+    if (showTags && !categoryId) {
+      setError("Choose a category.");
+      return;
+    }
+    if (kind === "payment" && resolvedTo) {
+      // Check against the books without this row when editing.
+      const base = editing && initial ? applyRemoveTransaction(state, initial.id) : state;
+      const check = checkLoanPayment(base, {
+        liabilityId: resolvedTo,
+        amount: parsed.value,
+      });
+      if (check.reason === "overpay") {
+        const ok = window.confirm(
+          `This is ${php(check.excess, true)} more than the ${php(check.remaining, true)} still owed. Record it anyway?`,
+        );
+        if (!ok) return;
+      } else if (check.error) {
+        setError(check.error);
+        return;
+      }
+    }
 
     const payload = {
       date,
       kind,
-      amount: Math.round(value * 100) / 100,
-      category: categoryId || (kind === "transfer" ? "savings" : kind === "payment" ? "debt" : ""),
+      amount: parsed.value,
+      category:
+        categoryId ||
+        (kind === "transfer"
+          ? "savings"
+          : kind === "payment"
+            ? "debt"
+            : kind === "borrow"
+              ? initial?.category || "loan-proceeds"
+              : ""),
       particular: particularName,
       particularId: particular?.id ?? null,
       fromId: resolvedFrom,
@@ -243,6 +269,7 @@ export function RecordForm({
           ? "Paid from untracked source"
           : note.trim(),
       installmentId: initial?.installmentId,
+      budgetLineId: initial?.budgetLineId ?? null,
     };
 
     if (editing && initial) {
@@ -261,12 +288,15 @@ export function RecordForm({
           <button
             key={item.id}
             type="button"
-            disabled={editing && Boolean(initial?.installmentId)}
+            disabled={
+              editing &&
+              (Boolean(initial?.installmentId) || initial?.kind === "borrow")
+            }
             onClick={() => {
               setKind(item.id);
               if (item.id === "income") setToId(cash[0]?.id ?? "");
               if (item.id === "transfer") setToId(savings[0]?.id ?? "");
-              if (item.id === "payment") setToId(debts[0]?.id ?? "");
+              if (item.id === "payment") setToId("");
               if (item.id === "expense") setFromId(cash[0]?.id ?? "");
             }}
             className={`rounded-xl border px-3 py-2.5 text-left text-sm font-medium disabled:opacity-50 ${
@@ -330,7 +360,7 @@ export function RecordForm({
                 onClick={onManageParticulars}
                 className="font-semibold text-ink underline-offset-2 hover:underline"
               >
-                Manage names in Menu
+                Manage names in More
               </button>
             ) : null}
           </p>
@@ -348,11 +378,14 @@ export function RecordForm({
             className="mt-1.5 w-full rounded-xl border border-paper-line bg-white px-3 py-2.5 text-sm"
             required
           >
+            {categoryOptions.length > 0 ? (
+              <option value="">Choose a category</option>
+            ) : null}
             {categoryOptions.length === 0 ? (
               <option value="">
                 {kind === "income"
-                  ? "Add an income group in Menu → Money plan"
-                  : "Add an expense group in Menu → Money plan"}
+                  ? "Add an income group in More → Income & recurring bills"
+                  : "Add an expense group in More → Income & recurring bills"}
               </option>
             ) : (
               categoryOptions.map((c) => (
@@ -369,7 +402,7 @@ export function RecordForm({
                 onClick={onManageCategories}
                 className="font-semibold text-ink underline-offset-2 hover:underline"
               >
-                Manage groups in Menu
+                Manage groups in More
               </button>
             </p>
           ) : null}
@@ -414,7 +447,13 @@ export function RecordForm({
             value={toId}
             onChange={(e) => setToId(e.target.value)}
             className="mt-1.5 w-full rounded-xl border border-paper-line bg-white px-3 py-2.5 text-sm"
+            required={kind === "payment"}
           >
+            {kind === "payment" ? (
+              <option value="">
+                {debts.length === 0 ? "No loans yet — add one in Loans" : "Choose a loan"}
+              </option>
+            ) : null}
             {toOptions.map((a) => (
               <option key={a.id} value={a.id}>
                 {a.name}
@@ -454,11 +493,12 @@ export function RecordForm({
             Pay from
           </span>
           <select
-            value={fromId || (payFrom[0]?.id ?? UNTRACKED_PAYMENT_SOURCE)}
+            value={fromId}
             onChange={(e) => setFromId(e.target.value)}
             className="mt-1.5 w-full rounded-xl border border-paper-line bg-white px-3 py-2.5 text-sm"
             required
           >
+            <option value="">Choose where it came from</option>
             {payFrom.map((a) => (
               <option key={a.id} value={a.id}>
                 {a.name}
@@ -504,6 +544,15 @@ export function RecordForm({
           placeholder="e.g. palengke, Meralco, BDO due date"
         />
       </label>
+
+      <p
+        role="status"
+        aria-live="polite"
+        data-testid="record-error"
+        className={error ? "text-sm font-semibold text-danger" : "sr-only"}
+      >
+        {error}
+      </p>
 
       <button
         type="submit"

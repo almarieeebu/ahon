@@ -25,17 +25,18 @@ export function LandingScreen({
   const [deferred, setDeferred] = useState<BeforeInstallPromptEvent | null>(
     null,
   );
-  const [installed, setInstalled] = useState(false);
+  // Rendered only after auth is ready on the client, so window is available.
+  const [installed, setInstalled] = useState(
+    () =>
+      typeof window !== "undefined" &&
+      (window.matchMedia("(display-mode: standalone)").matches ||
+        // iOS Safari
+        ("standalone" in navigator &&
+          Boolean((navigator as Navigator & { standalone?: boolean }).standalone))),
+  );
   const [showIosTip, setShowIosTip] = useState(false);
 
   useEffect(() => {
-    const isStandalone =
-      window.matchMedia("(display-mode: standalone)").matches ||
-      // iOS Safari
-      ("standalone" in navigator &&
-        Boolean((navigator as Navigator & { standalone?: boolean }).standalone));
-    if (isStandalone) setInstalled(true);
-
     function onBip(e: Event) {
       e.preventDefault();
       setDeferred(e as BeforeInstallPromptEvent);

@@ -112,7 +112,7 @@ create table if not exists public.transactions (
   id text primary key,
   user_id uuid not null references auth.users (id) on delete cascade,
   tx_date date not null,
-  kind text not null check (kind in ('income', 'expense', 'transfer', 'payment', 'adjustment')),
+  kind text not null check (kind in ('income', 'expense', 'transfer', 'payment', 'adjustment', 'borrow')),
   amount numeric(14, 2) not null,
   category text not null default '',
   particular text not null default '',
@@ -204,6 +204,49 @@ alter table public.profiles alter column setup_complete set not null;
 
 alter table public.transactions drop constraint if exists transactions_kind_check;
 alter table public.transactions add constraint transactions_kind_check
-  check (kind in ('income', 'expense', 'transfer', 'payment', 'adjustment'));
+  check (kind in ('income', 'expense', 'transfer', 'payment', 'adjustment', 'borrow'));
+
+-- ---------- migrate existing DBs: easier expense + loan recording ----------
+-- Safe to re-run. All new columns are nullable; existing rows keep their
+-- meaning (null balance_known = balance was entered, i.e. known).
+-- Ownership stays per-user through the existing *_own RLS policies on these
+-- tables (user_id = auth.uid()); no new tables are added.
+
+-- Wallet opening balance may be unknown ("balance incomplete"), not a verified 0.
+alter table public.accounts add column if not exists balance_known boolean;
+
+-- Explicit link from a transaction to the planned bill (budget line) it paid.
+alter table public.transactions add column if not exists budget_line_id text
+  references public.budget_lines (id) on delete set null;
+create index if not exists transactions_budget_line_id_idx
+  on public.transactions (budget_line_id);
+
+-- Loan proceeds ('borrow'): from_id = the liability, to_id = receiving wallet.
+-- Payments keep linking the loan explicitly through to_id (kind 'payment').
+-- (Kind constraint above already allows 'borrow'.)
+
+-- ---------- migrate existing DBs: loans without guesses ----------
+-- Safe to re-run; nullable columns only, RLS unchanged (existing *_own
+-- policies cover these tables).
+-- Interest may be unknown: false = not known (monthly_rate 0 is a
+-- placeholder, not 0%); null (older rows) = entered, i.e. known.
+alter table public.accounts add column if not exists interest_known boolean;
+-- Partial payments on a scheduled installment: total paid toward that row.
+-- null = legacy row (status alone says paid/unpaid).
+alter table public.installments add column if not exists paid_amount numeric(14, 2);
+
+notify pgrst, 'reload schema';
+
+-- ---------- migrate existing DBs: monthly budget from activity ----------
+-- Safe to re-run; nullable columns only, RLS unchanged (budget_lines_own
+-- still limits every row to user_id = auth.uid()). Existing rows keep null
+-- and are read as before: expense > 0 = planned bill, income > 0 = expected
+-- income. The stored "actual" column is kept as-is and no longer written.
+-- line_type: 'limit' (category spending limit), 'bill', 'income'.
+alter table public.budget_lines add column if not exists line_type text;
+-- Category for a 'limit' row (plain text id, like transactions.category).
+alter table public.budget_lines add column if not exists category_id text;
+-- Review of an earlier manual amount: 'kept' (note) or 'hidden'.
+alter table public.budget_lines add column if not exists legacy_review text;
 
 notify pgrst, 'reload schema';

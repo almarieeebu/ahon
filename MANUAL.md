@@ -38,6 +38,16 @@ A weekly grocery total is enough. You do not need every jeepney fare.
 
 ---
 
+## Budget
+
+- The Budget tab opens on this month. Tap **Set monthly budget**, pick a category and a spending limit (add more if you like), and optionally expected income and bills with due dates.
+- **Spent** and **Left** come from your Activity. You never type what you spent twice.
+- Loan and card repayments have their own row. Things bought on credit count when you bought them.
+- Spending in a category without a limit shows as **Unbudgeted spending**.
+- Older budgets may show **Earlier manual entries (not from your activity)**: amounts typed by hand before. They are kept, never added to Spent. Choose **Keep as note** or **Hide** for each. Details: `docs/budget-migration.md`.
+
+---
+
 ## Sharing
 
 - Send the link + this manual.  
@@ -48,6 +58,6 @@ A weekly grocery total is enough. You do not need every jeepney fare.
 
 ## Tips
 
-- Copy last month’s plan when a new month starts (Plan tab).  
+- Copy last month’s budget when a new month starts (Budget tab → Copy last month). Only limits, expected income and bills are copied.  
 - Export backup: **Menu → Profile → Export backup**.  
 - Replay the tour: **Menu → Profile → Replay tour**.

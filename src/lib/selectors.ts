@@ -18,6 +18,18 @@ export function liabilityLeft(
   return Math.max(0, ledgerBalance);
 }
 
+/** Legacy accounts (no flag) count as known. */
+export function isBalanceKnown(account: Account): boolean {
+  return account.balanceKnown !== false;
+}
+
+/** Live cash/savings accounts whose starting balance was never entered. */
+export function incompleteBalanceAccounts(state: AppState): Account[] {
+  return liveAccounts(state).filter(
+    (a) => a.kind !== "liability" && !isBalanceKnown(a),
+  );
+}
+
 export function liveAccounts(state: AppState): Account[] {
   return state.accounts.filter((a) => !a.archived);
 }
@@ -64,6 +76,17 @@ export function accountBalances(state: AppState): Record<string, number> {
       const to = lookup.get(tx.toId);
       if (to?.mode !== "installment") {
         bal[tx.toId] = Math.max(0, (bal[tx.toId] ?? 0) - tx.amount);
+      }
+    } else if (tx.kind === "borrow") {
+      // Loan proceeds: debt goes up, the receiving wallet goes up.
+      if (tx.fromId) {
+        const from = lookup.get(tx.fromId);
+        if (from?.kind === "liability" && from.mode !== "installment") {
+          bal[tx.fromId] = (bal[tx.fromId] ?? 0) + tx.amount;
+        }
+      }
+      if (tx.toId) {
+        bal[tx.toId] = (bal[tx.toId] ?? 0) + tx.amount;
       }
     } else if (tx.kind === "adjustment") {
       if (tx.fromId) {
@@ -180,6 +203,8 @@ export function kindLabel(kind: Transaction["kind"]): string {
       return "Utang payment";
     case "adjustment":
       return "Balance adjustment";
+    case "borrow":
+      return "Loan received";
   }
 }
 

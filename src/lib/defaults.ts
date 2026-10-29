@@ -37,12 +37,14 @@ export function emptyAccount(
     liabilityType: kind === "liability" ? "other" : undefined,
     mode: kind === "liability" ? "revolving" : undefined,
     openingBalance: 0,
-    monthlyRate: kind === "liability" ? 0.03 : 0,
-    dueDay: kind === "liability" ? 15 : 0,
+    // No preset rate or due day: unknown until the person enters them.
+    monthlyRate: 0,
+    dueDay: 0,
     plannedPayment: 0,
     goal: kind === "savings" ? 0 : 0,
     archived: false,
     schedule: undefined,
+    ...(kind === "liability" ? { interestKnown: false } : {}),
   };
 }
 
@@ -222,6 +224,8 @@ export function presetState(): AppState {
       name: "Cash on hand",
       kind: "cash",
       openingBalance: 0,
+      // Not entered yet: show "balance incomplete", never a verified ₱0.
+      balanceKnown: false,
       monthlyRate: 0,
       dueDay: 0,
       plannedPayment: 0,

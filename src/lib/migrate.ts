@@ -79,6 +79,8 @@ function normalizeAccount(account: Account): Account {
     schedule: account.schedule ?? undefined,
     dueDay: account.dueDay ?? 0,
     goal: account.goal ?? 0,
+    // Records saved before this flag existed were entered as real balances.
+    balanceKnown: account.balanceKnown !== false,
   };
 }
 
@@ -132,6 +134,15 @@ function normalizeBudgetLine(
     actual: line.actual ?? null,
     status: line.status ?? "unpaid",
     order: line.order ?? 0,
+    ...(line.lineType === "limit" ||
+    line.lineType === "bill" ||
+    line.lineType === "income"
+      ? { lineType: line.lineType }
+      : {}),
+    ...(line.categoryId ? { categoryId: line.categoryId } : {}),
+    ...(line.legacyReview === "kept" || line.legacyReview === "hidden"
+      ? { legacyReview: line.legacyReview }
+      : {}),
   };
 }
 
@@ -156,6 +167,7 @@ function normalizeTransaction(
     toId: tx.toId ?? null,
     note: tx.note ?? "",
     installmentId: tx.installmentId,
+    budgetLineId: tx.budgetLineId ?? null,
   };
 }
 
