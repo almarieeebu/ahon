@@ -124,6 +124,8 @@ export function HomeView({
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [walletId, setWalletId] = useState<string | null>(null);
   const [addLoanOpen, setAddLoanOpen] = useState(false);
+  // Set when Add loan was opened from "Borrowed (utang)" in Log money.
+  const [borrowed, setBorrowed] = useState<{ amount: string } | null>(null);
   const [wizardOpen, setWizardOpen] = useState(false);
   // Read when the first-use card renders; a skipped setup leaves a draft.
   const [hasDraft, setHasDraft] = useState(() => loadSetupDraft() != null);
@@ -489,7 +491,12 @@ export function HomeView({
 
       <AddLoanSheet
         open={addLoanOpen}
-        onClose={() => setAddLoanOpen(false)}
+        initialKind={borrowed ? "new" : undefined}
+        initialAmount={borrowed?.amount}
+        onClose={() => {
+          setAddLoanOpen(false);
+          setBorrowed(null);
+        }}
         onViewLoans={onOpenUtang}
       />
 
@@ -498,6 +505,10 @@ export function HomeView({
         prefill={logPrefill}
         title={logTitle}
         onAddLoan={onOpenUtang}
+        onAddBorrowed={(amount) => {
+          setBorrowed({ amount });
+          setAddLoanOpen(true);
+        }}
         onClose={() => {
           setLogOpen(false);
           setLogPrefill(undefined);

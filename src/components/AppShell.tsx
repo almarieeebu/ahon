@@ -67,7 +67,9 @@ export function AppShell() {
   const [helpOpen, setHelpOpen] = useState(false);
   const [manualOpen, setManualOpen] = useState(false);
   const [tourSession, setTourSession] = useState(0);
-  const [action, setAction] = useState<QuickAction | null>(null);
+  const [action, setAction] = useState<QuickAction | "loan-new" | null>(null);
+  // Amount typed in Log money before choosing "Borrowed (utang)".
+  const [borrowAmount, setBorrowAmount] = useState("");
   // Ask the Budget page to open "Set monthly budget" (from a quick action).
   const [pendingBudgetForm, setPendingBudgetForm] = useState(false);
   const consumeBudgetForm = useCallback(() => setPendingBudgetForm(false), []);
@@ -105,6 +107,11 @@ export function AppShell() {
       return;
     }
     setAction(next);
+  }
+
+  function openBorrowed(amount: string) {
+    setBorrowAmount(amount);
+    setAction("loan-new");
   }
 
   const quickActions: { id: QuickAction | "budget"; label: string; hint: string; icon: IconName }[] = [
@@ -321,6 +328,7 @@ export function AppShell() {
               onManageParticulars={() => openMore("particulars")}
               onManageCategories={() => openMore("budget")}
               onAddLoan={() => setAction("loan")}
+              onAddBorrowed={openBorrowed}
             />
           ) : null}
           {tab === "save" ? <SaveView /> : null}
@@ -395,6 +403,7 @@ export function AppShell() {
         prefill={action === "expense" ? { direction: "out" } : undefined}
         title={action === "expense" ? "Add expense" : undefined}
         onAddLoan={() => setAction("loan")}
+        onAddBorrowed={openBorrowed}
         onClose={() => setAction(null)}
         onManageParticulars={() => {
           setAction(null);
@@ -406,7 +415,9 @@ export function AppShell() {
         }}
       />
       <AddLoanSheet
-        open={action === "loan"}
+        open={action === "loan" || action === "loan-new"}
+        initialKind={action === "loan-new" ? "new" : undefined}
+        initialAmount={action === "loan-new" ? borrowAmount : undefined}
         onClose={() => setAction(null)}
         onViewLoans={() => {
           setAction(null);

@@ -24,10 +24,12 @@ export function Ledger({
   onManageParticulars,
   onManageCategories,
   onAddLoan,
+  onAddBorrowed,
 }: {
   onManageParticulars?: () => void;
   onManageCategories?: () => void;
   onAddLoan?: () => void;
+  onAddBorrowed?: (amount: string) => void;
 }) {
   const { state, month, removeTransaction } = useFinance();
   const [open, setOpen] = useState(false);
@@ -283,6 +285,7 @@ export function Ledger({
         prefill={!editing && addMode === "expense" ? { direction: "out" } : undefined}
         title={!editing && addMode === "expense" ? "Add expense" : undefined}
         onAddLoan={onAddLoan}
+        onAddBorrowed={onAddBorrowed}
         onClose={closeModal}
         onManageParticulars={onManageParticulars}
         onManageCategories={onManageCategories}
