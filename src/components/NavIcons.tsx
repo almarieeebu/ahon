@@ -15,6 +15,7 @@ const paths = {
   help: "M7.8 7.6a2.3 2.3 0 1 1 3.2 2.1c-.6.3-1 .8-1 1.5v.3M10 14.5h.01M10 17a7 7 0 1 0 0-14 7 7 0 0 0 0 14z",
   expense: "M10 4v12M14.5 11.5 10 16l-4.5-4.5",
   pay: "M3.5 10.5 8 15l8.5-9",
+  transfer: "M4 7h11.5M12.5 4l3 3-3 3M16 13H4.5M7.5 10l-3 3 3 3",
 } as const;
 
 export type IconName = keyof typeof paths;

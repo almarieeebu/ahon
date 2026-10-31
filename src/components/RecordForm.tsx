@@ -8,12 +8,13 @@ import { UNTRACKED_PAYMENT_SOURCE } from "@/lib/paymentSource";
 import { findParticular } from "@/lib/refs";
 import { nextUnpaid } from "@/lib/schedule";
 import { byKind } from "@/lib/selectors";
+import { TRANSFER_CATEGORY } from "@/lib/simpleLog";
 import type { Transaction, TxKind } from "@/lib/types";
 
 const KINDS: { id: TxKind; label: string }[] = [
   { id: "income", label: "Payday / income" },
   { id: "expense", label: "Expense" },
-  { id: "transfer", label: "Move to tigum" },
+  { id: "transfer", label: "Transfer / tigum" },
   { id: "payment", label: "Bayad utang" },
 ];
 
@@ -113,7 +114,8 @@ export function RecordForm({
 
   const toOptions = useMemo(() => {
     if (kind === "income") return cash;
-    if (kind === "transfer") return savings;
+    // Tigum pots first: the usual move is cash → savings.
+    if (kind === "transfer") return [...savings, ...cash];
     if (kind === "payment") return debts;
     return [];
   }, [cash, debts, kind, savings]);
@@ -183,6 +185,10 @@ export function RecordForm({
         setError("Choose which account the transfer is taken from.");
         return;
       }
+      if (resolvedTo === fromId) {
+        setError("Choose a different account to move the money into.");
+        return;
+      }
       resolvedFrom = fromId;
     } else {
       resolvedFrom = fromId || spendFrom[0]?.id || null;
@@ -201,7 +207,10 @@ export function RecordForm({
         ? resolvedCategory
         : ""
       : kind === "transfer"
-        ? "savings"
+        ? // Into a tigum pot = savings; wallet to wallet = plain transfer.
+          savings.some((a) => a.id === resolvedTo)
+          ? "savings"
+          : TRANSFER_CATEGORY
         : kind === "payment"
           ? "debt"
           : "";
@@ -440,7 +449,7 @@ export function RecordForm({
             {kind === "income"
               ? "Goes into"
               : kind === "transfer"
-                ? "Savings pot"
+                ? "Moves into"
                 : "Which utang"}
           </span>
           <select

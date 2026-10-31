@@ -19,6 +19,8 @@ import type {
   Account,
   AppState,
   BudgetLine,
+  Category,
+  Particular,
   Transaction,
 } from "./types";
 
@@ -508,6 +510,217 @@ export function applySimpleUpdate(
     note: draft.note !== undefined ? draft.note.trim() : current.note,
     installmentId: current.installmentId,
   });
+}
+
+// ---------- Transfers between wallets (with optional fee) ----------
+
+/** `category` on a wallet-to-wallet transfer row (not spending, not tigum). */
+export const TRANSFER_CATEGORY = "transfer";
+export const TRANSFER_FEE_CATEGORY: Category = {
+  id: "cat-bank-fees",
+  name: "Bank & transfer fees",
+  planned: 0,
+  dueDay: 0,
+  kind: "expense",
+  tone: "default",
+};
+export const TRANSFER_FEE_PARTICULAR: Particular = {
+  id: "p-bank-fees",
+  name: "BANK / TRANSFER FEES",
+  categoryId: TRANSFER_FEE_CATEGORY.id,
+};
+export const TRANSFER_FEE_NOTE = "Transfer fee";
+
+export type TransferDraft = {
+  /** Client-generated id; repeating a submit with it never duplicates. */
+  id?: string;
+  amount: number;
+  /** Optional fee charged on the source wallet; 0 / empty means none. */
+  fee?: number | null;
+  fromId: string | null;
+  toId: string | null;
+  date?: string;
+  note?: string;
+};
+
+export type TransferDraftErrors = Partial<
+  Record<"amount" | "fee" | "from" | "to" | "date", string>
+>;
+
+/** Id of the fee expense saved with transfer `transferId`. */
+export function transferFeeId(transferId: string): string {
+  return `${transferId}-fee`;
+}
+
+/** Wallets money can move between: cash wallets and tigum pots. */
+export function transferAccounts(state: AppState): Account[] {
+  return [...byKind(state, "cash"), ...byKind(state, "savings")];
+}
+
+/** Wallet-to-wallet transfer saved from the Log money sheet. */
+export function isWalletTransfer(tx: Transaction): boolean {
+  return tx.kind === "transfer" && tx.category === TRANSFER_CATEGORY;
+}
+
+export function transferDraftErrors(
+  state: AppState,
+  draft: TransferDraft,
+): TransferDraftErrors {
+  const errors: TransferDraftErrors = {};
+  const amount = parseAmount(draft.amount);
+  if (!amount.ok) errors.amount = amount.error;
+  if (draft.fee != null && draft.fee !== 0) {
+    const fee = parseAmount(draft.fee);
+    if (!fee.ok) errors.fee = fee.error;
+  }
+  if (draft.date != null && !/^\d{4}-\d{2}-\d{2}$/.test(draft.date)) {
+    errors.date = "Choose a valid date.";
+  }
+  const accounts = transferAccounts(state);
+  if (!draft.fromId || !accounts.some((a) => a.id === draft.fromId)) {
+    errors.from = "Choose where the money comes from.";
+  }
+  if (!draft.toId || !accounts.some((a) => a.id === draft.toId)) {
+    errors.to = "Choose where the money goes.";
+  } else if (draft.toId === draft.fromId) {
+    errors.to = "Choose a different wallet to move money into.";
+  }
+  return errors;
+}
+
+function feeCategory(state: AppState): Category | undefined {
+  return (
+    state.categories.find((c) => c.id === TRANSFER_FEE_CATEGORY.id) ??
+    state.categories.find(
+      (c) => (c.kind ?? "expense") === "expense" && /\b(fees?|bank charges?)\b/i.test(c.name),
+    )
+  );
+}
+
+/**
+ * Make sure a fee category and particular exist. Older books (made before
+ * the preset had one) get "Bank & transfer fees" added the first time a fee
+ * is logged; an existing fees category is reused.
+ */
+export function ensureTransferFeeTags(state: AppState): {
+  state: AppState;
+  categoryId: string;
+  particularId: string;
+} {
+  let next = state;
+  let category = feeCategory(next);
+  if (!category) {
+    category = { ...TRANSFER_FEE_CATEGORY };
+    next = { ...next, categories: [...next.categories, category] };
+  }
+  const categoryId = category.id;
+  let particular =
+    next.particulars.find((p) => p.id === TRANSFER_FEE_PARTICULAR.id && p.categoryId === categoryId) ??
+    next.particulars.find((p) => p.categoryId === categoryId && /fee/i.test(p.name));
+  if (!particular) {
+    const idTaken = next.particulars.some((p) => p.id === TRANSFER_FEE_PARTICULAR.id);
+    particular = {
+      ...TRANSFER_FEE_PARTICULAR,
+      id: idTaken ? `p-bank-fees-${uid()}` : TRANSFER_FEE_PARTICULAR.id,
+      categoryId,
+    };
+    next = { ...next, particulars: [...next.particulars, particular] };
+  }
+  return { state: next, categoryId, particularId: particular.id };
+}
+
+/**
+ * Rows for one transfer: the move itself, plus an expense for the fee when
+ * there is one. Source drops by amount + fee; destination rises by amount;
+ * only the fee counts as spending.
+ */
+export function buildTransferTransactions(
+  state: AppState,
+  draft: TransferDraft,
+): { state: AppState; rows: Omit<Transaction, "id">[] } | null {
+  if (Object.keys(transferDraftErrors(state, draft)).length > 0) return null;
+  const amount = parseAmount(draft.amount);
+  if (!amount.ok) return null;
+  const date = draft.date ?? todayIso();
+  const note = draft.note?.trim() ?? "";
+  const rows: Omit<Transaction, "id">[] = [
+    {
+      date,
+      kind: "transfer",
+      amount: amount.value,
+      category: TRANSFER_CATEGORY,
+      particular: "",
+      particularId: null,
+      fromId: draft.fromId,
+      toId: draft.toId,
+      note,
+      budgetLineId: null,
+    },
+  ];
+  const fee = draft.fee ? parseAmount(draft.fee) : null;
+  let next = state;
+  if (fee?.ok) {
+    const tags = ensureTransferFeeTags(state);
+    next = tags.state;
+    const particular = next.particulars.find((p) => p.id === tags.particularId);
+    rows.push({
+      date,
+      kind: "expense",
+      amount: fee.value,
+      category: tags.categoryId,
+      particular: particular?.name ?? TRANSFER_FEE_PARTICULAR.name,
+      particularId: tags.particularId,
+      fromId: draft.fromId,
+      toId: null,
+      note: TRANSFER_FEE_NOTE,
+      budgetLineId: null,
+    });
+  }
+  return { state: next, rows };
+}
+
+export function applyTransfer(state: AppState, draft: TransferDraft): AppState | null {
+  // Idempotent: a repeated submit with the same id never adds a second row.
+  if (draft.id && state.transactions.some((row) => row.id === draft.id)) {
+    return state;
+  }
+  const built = buildTransferTransactions(state, draft);
+  if (!built) return null;
+  const id = draft.id ?? uid();
+  const [move, fee] = built.rows;
+  return {
+    ...built.state,
+    transactions: [
+      ...built.state.transactions,
+      { ...move, id },
+      ...(fee ? [{ ...fee, id: transferFeeId(id) }] : []),
+    ],
+  };
+}
+
+/** Replace a transfer (and its fee row) with the edited draft, same id. */
+export function applyTransferUpdate(
+  state: AppState,
+  id: string,
+  draft: TransferDraft,
+): AppState | null {
+  const current = state.transactions.find((row) => row.id === id);
+  if (!current || current.kind !== "transfer") return null;
+  const without = applyRemoveTransaction(
+    applyRemoveTransaction(state, id),
+    transferFeeId(id),
+  );
+  return applyTransfer(without, {
+    ...draft,
+    id,
+    date: draft.date ?? current.date,
+  });
+}
+
+/** Fee amount saved with a transfer, or 0. */
+export function transferFeeAmount(state: AppState, transferId: string): number {
+  const fee = state.transactions.find((row) => row.id === transferFeeId(transferId));
+  return fee?.kind === "expense" ? fee.amount : 0;
 }
 
 export function chipIdForParticular(

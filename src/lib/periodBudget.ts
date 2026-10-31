@@ -369,7 +369,9 @@ export function summarizeOverview(
     } else if (
       tx.kind === "expense" ||
       tx.kind === "payment" ||
-      tx.kind === "transfer"
+      // Tigum transfers count as money set aside; a wallet-to-wallet move
+      // (category "transfer") is neither in nor out.
+      (tx.kind === "transfer" && tx.category !== "transfer")
     ) {
       actualOut += tx.amount;
       bucket.actualOut = money2(bucket.actualOut + tx.amount);
