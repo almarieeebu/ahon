@@ -14,6 +14,8 @@ import { byKind, incompleteBalanceAccounts, isBalanceKnown } from "@/lib/selecto
 import {
   applySimpleLog,
   applySimpleUpdate,
+  applyTransfer,
+  applyTransferUpdate,
   billLinesForMonth,
   billParticulars,
   cashAccounts,
@@ -23,15 +25,23 @@ import {
   logSaveFeedback,
   moreParticulars,
   simpleDraftErrors,
+  transferAccounts,
+  transferDraftErrors,
+  transferFeeAmount,
   type LogSaveFeedback,
   type SimpleDirection,
   type SimpleDraftErrors,
   type SimpleLogDraft,
+  type TransferDraft,
+  type TransferDraftErrors,
 } from "@/lib/simpleLog";
 import type { Transaction } from "@/lib/types";
 
+/** Money in, spent, or moved between wallets. */
+type LogMode = SimpleDirection | "transfer";
+
 type Prefill = {
-  direction?: SimpleDirection;
+  direction?: LogMode;
   chipId?: string;
   particularId?: string;
 };
@@ -39,6 +49,8 @@ type Prefill = {
 type Saved = {
   id: string;
   amount: number;
+  /** Transfer fee logged as spending, 0 when none. */
+  fee: number;
   feedback: LogSaveFeedback;
   incomplete: boolean;
 };
@@ -75,14 +87,19 @@ export function SimpleLogSheet({
   /** Heading for a new entry, e.g. "Add expense". */
   title?: string;
 }) {
-  const { state, logSimple, updateSimple, upsertAccount } = useFinance();
+  const { state, logSimple, updateSimple, upsertAccount, updateState } = useFinance();
   const formId = useId();
   const [editId, setEditId] = useState<string | null>(initial?.id ?? null);
-  const [direction, setDirection] = useState<SimpleDirection>("out");
+  const [mode, setMode] = useState<LogMode>("out");
+  const direction: SimpleDirection = mode === "in" ? "in" : "out";
+  const isTransfer = mode === "transfer";
   const [amount, setAmount] = useState("");
   const [chipId, setChipId] = useState("");
   const [particularId, setParticularId] = useState("");
   const [walletChoice, setWalletId] = useState("");
+  const [transferFrom, setTransferFrom] = useState("");
+  const [transferTo, setTransferTo] = useState("");
+  const [fee, setFee] = useState("");
   const [liabilityId, setLiabilityId] = useState("");
   const [budgetLineId, setBudgetLineId] = useState("");
   const [date, setDate] = useState(todayIso());
@@ -109,18 +126,27 @@ export function SimpleLogSheet({
   const wallets = useMemo(() => cashAccounts(state), [state]);
   const loans = useMemo(() => byKind(state, "liability"), [state]);
   const defaultWalletId = defaultCashAccount(state)?.id ?? "";
-  const isUtang = direction === "out" && chipId === "utang" && !particularId;
-  const isBills = direction === "out" && chipId === "bills";
+  const moveAccounts = useMemo(() => transferAccounts(state), [state]);
+  const isUtang = mode === "out" && chipId === "utang" && !particularId;
+  const isBills = mode === "out" && chipId === "bills";
   const billLines = useMemo(() => {
     const rows = billLinesForMonth(state, (date || todayIso()).slice(0, 7));
     const linked = state.budgetLines.find((line) => line.id === budgetLineId);
     return linked && !rows.some((row) => row.id === linked.id) ? [linked, ...rows] : rows;
   }, [state, date, budgetLineId]);
 
-  function resetFields(source: Transaction | null | undefined, keepDirection?: SimpleDirection) {
-    const nextDirection: SimpleDirection =
-      keepDirection ??
-      (source?.kind === "income" || (!source && prefill?.direction === "in") ? "in" : "out");
+  function resetFields(source: Transaction | null | undefined, keepMode?: LogMode) {
+    const nextMode: LogMode =
+      keepMode ??
+      (source
+        ? source.kind === "income"
+          ? "in"
+          : source.kind === "transfer"
+            ? "transfer"
+            : "out"
+        : (prefill?.direction ?? "out"));
+    const keepDirection = keepMode;
+    const nextDirection: SimpleDirection = nextMode === "in" ? "in" : "out";
     const nextParticular =
       source?.particularId ?? (!source && !keepDirection ? prefill?.particularId : "") ?? "";
     const fromChip = chipIdForParticular(nextDirection, nextParticular, state);
@@ -131,8 +157,12 @@ export function SimpleLogSheet({
     const isChipParticular =
       Boolean(nextParticular) &&
       chipsForDirection(nextDirection).some((c) => c.particularId === nextParticular);
-    setDirection(nextDirection);
+    setMode(nextMode);
     setAmount(source ? String(source.amount) : "");
+    setTransferFrom(source?.kind === "transfer" ? (source.fromId ?? "") : "");
+    setTransferTo(source?.kind === "transfer" ? (source.toId ?? "") : "");
+    const savedFee = source?.kind === "transfer" ? transferFeeAmount(state, source.id) : 0;
+    setFee(savedFee > 0 ? String(savedFee) : "");
     setChipId(nextChip);
     setParticularId(nextParticular && !isChipParticular ? nextParticular : "");
     setShowMore(Boolean(nextParticular && !fromChip && source?.kind !== "payment"));
@@ -172,6 +202,18 @@ export function SimpleLogSheet({
   const walletId =
     walletChoice && wallets.some((w) => w.id === walletChoice) ? walletChoice : defaultWalletId;
 
+  // Transfer: chosen wallets, or sensible defaults (default wallet → next one).
+  const moveFromId =
+    transferFrom && moveAccounts.some((a) => a.id === transferFrom)
+      ? transferFrom
+      : moveAccounts.some((a) => a.id === defaultWalletId)
+        ? defaultWalletId
+        : (moveAccounts[0]?.id ?? "");
+  const moveToId =
+    transferTo && moveAccounts.some((a) => a.id === transferTo)
+      ? transferTo
+      : (moveAccounts.find((a) => a.id !== moveFromId)?.id ?? "");
+
   const parsedAmount = parseAmount(amount);
   const draft: SimpleLogDraft = {
     id: editing ? undefined : submissionId,
@@ -186,6 +228,19 @@ export function SimpleLogSheet({
     liabilityId: isUtang ? liabilityId || null : null,
     budgetLineId: !isUtang && budgetLineId ? budgetLineId : null,
     confirmOverpay,
+  };
+
+  const feeText = fee.trim();
+  const parsedFee = parseAmount(feeText);
+  const feeIsZero = /^₱?\s*0*(\.0*)?$/.test(feeText);
+  const transferDraft: TransferDraft = {
+    id: editing ? undefined : submissionId,
+    amount: parsedAmount.ok ? parsedAmount.value : NaN,
+    fee: feeText === "" || feeIsZero ? null : parsedFee.ok ? parsedFee.value : NaN,
+    fromId: moveFromId || null,
+    toId: moveToId || null,
+    date,
+    note,
   };
 
   // Validate edits against the books without the row being edited.
@@ -204,10 +259,18 @@ export function SimpleLogSheet({
     : null;
   const overpay = loanCheck && loanCheck.excess > 0 ? loanCheck : null;
   const noLoans = isUtang && loans.length === 0;
-  const visibleErrors = submitted ? errors : {};
-  const errorList = Object.values(visibleErrors).filter(Boolean);
+  const moveErrors: TransferDraftErrors = transferDraftErrors(state, transferDraft);
+  if (!parsedAmount.ok) moveErrors.amount = parsedAmount.error;
+  if (feeText !== "" && !feeIsZero && !parsedFee.ok) moveErrors.fee = parsedFee.error;
+  const activeErrors: Record<string, string | undefined> = isTransfer ? moveErrors : errors;
+  const visibleErrors: SimpleDraftErrors = submitted && !isTransfer ? errors : {};
+  const visibleMoveErrors: TransferDraftErrors = submitted && isTransfer ? moveErrors : {};
+  if (visibleMoveErrors.amount) visibleErrors.amount = visibleMoveErrors.amount;
+  const errorList = Object.values(
+    isTransfer ? visibleMoveErrors : visibleErrors,
+  ).filter(Boolean);
 
-  function errId(field: keyof SimpleDraftErrors) {
+  function errId(field: keyof SimpleDraftErrors | keyof TransferDraftErrors) {
     return `${formId}-${field}-error`;
   }
 
@@ -215,9 +278,31 @@ export function SimpleLogSheet({
     setSubmitted(true);
     // Same entry already being saved (double tap): ignore.
     if (savingRef.current === submissionId) return;
-    if (Object.keys(errors).length > 0) return;
+    if (Object.values(activeErrors).some(Boolean)) return;
     savingRef.current = submissionId;
     setSaving(true);
+    if (isTransfer) {
+      const apply = (books: typeof state) =>
+        editId
+          ? applyTransferUpdate(books, editId, transferDraft)
+          : applyTransfer(books, transferDraft);
+      const moved = apply(state);
+      if (!moved) {
+        savingRef.current = null;
+        setSaving(false);
+        return;
+      }
+      updateState((prev) => apply(prev) ?? prev);
+      setSaved({
+        id: editId ?? submissionId,
+        amount: transferDraft.amount,
+        fee: transferDraft.fee ?? 0,
+        feedback: logSaveFeedback(moved),
+        incomplete: incompleteBalanceAccounts(moved).length > 0,
+      });
+      setSaving(false);
+      return;
+    }
     const next = editId
       ? applySimpleUpdate(state, editId, draft)
       : applySimpleLog(state, draft);
@@ -232,6 +317,7 @@ export function SimpleLogSheet({
     setSaved({
       id,
       amount: draft.amount,
+      fee: 0,
       feedback: logSaveFeedback(next),
       incomplete: incompleteBalanceAccounts(next).length > 0,
     });
@@ -247,7 +333,8 @@ export function SimpleLogSheet({
     const account = result.state.accounts.find((a) => a.id === result.accountId);
     if (!account) return;
     upsertAccount(account);
-    setWalletId(account.id);
+    if (isTransfer) setTransferTo(account.id);
+    else setWalletId(account.id);
     setNewWalletName("");
     setNewWalletBalance("");
     setWalletError("");
@@ -261,7 +348,13 @@ export function SimpleLogSheet({
         <div className="space-y-4">
           <p role="status" aria-live="polite" className="text-sm font-semibold text-ok">
             {editing ? "Entry updated" : "Saved"}: {phpSmart(saved.amount)}
+            {isTransfer ? " moved" : ""}
           </p>
+          {saved.fee > 0 ? (
+            <p className="-mt-2 text-sm text-ink-muted" data-testid="log-saved-fee">
+              Transfer fee {phpSmart(saved.fee)} logged as spending.
+            </p>
+          ) : null}
           <div>
             <p className="text-sm text-ink-muted">Cash left</p>
             <p className="font-display text-3xl font-semibold text-ink">
@@ -306,7 +399,7 @@ export function SimpleLogSheet({
                 setSaved(null);
                 savingRef.current = null;
                 setSubmissionId(uid());
-                resetFields(null, direction);
+                resetFields(null, mode);
               }}
               className="rounded-full border border-paper-line bg-white px-4 py-2.5 text-sm font-semibold text-ink"
             >
@@ -351,6 +444,55 @@ export function SimpleLogSheet({
     );
   }
 
+  function addWalletBlock(heading: string) {
+    return (
+          <div className="rounded-xl border border-paper-line bg-white/70 p-3">
+            <p className="text-sm font-semibold text-ink">{heading}</p>
+            <p className="mt-0.5 text-xs text-ink-muted">
+              Where the money is kept, like Cash or GCash. Leave the balance blank if
+              you are not sure.
+            </p>
+            <div className="mt-2 grid gap-2 sm:grid-cols-2">
+              <label className="block text-xs text-ink-muted" htmlFor={`${formId}-wallet-name`}>
+                Wallet name
+                <input
+                  id={`${formId}-wallet-name`}
+                  value={newWalletName}
+                  onChange={(event) => setNewWalletName(event.target.value)}
+                  className={inputBox}
+                  placeholder="Cash"
+                  data-testid="log-new-wallet-name"
+                />
+              </label>
+              <label className="block text-xs text-ink-muted" htmlFor={`${formId}-wallet-balance`}>
+                Starting balance (optional)
+                <input
+                  id={`${formId}-wallet-balance`}
+                  inputMode="decimal"
+                  value={newWalletBalance}
+                  onChange={(event) => setNewWalletBalance(event.target.value)}
+                  className={inputBox}
+                  placeholder="Not sure"
+                />
+              </label>
+            </div>
+            {walletError ? (
+              <p role="alert" className="mt-1 text-xs font-semibold text-danger">
+                {walletError}
+              </p>
+            ) : null}
+            <button
+              type="button"
+              onClick={addWallet}
+              className="mt-2 rounded-full border border-ink/20 px-4 py-2 text-sm font-semibold text-ink"
+              data-testid="log-new-wallet-add"
+            >
+              Add wallet
+            </button>
+          </div>
+    );
+  }
+
   const selectedWallet = wallets.find((w) => w.id === walletId);
   const manageNew = direction === "in" ? onManageParticulars : onManageCategories;
 
@@ -368,28 +510,32 @@ export function SimpleLogSheet({
           save();
         }}
       >
-        <fieldset className="grid grid-cols-2 gap-2">
-          <legend className="sr-only">In or spent</legend>
+        <fieldset className="grid grid-cols-3 gap-2">
+          <legend className="sr-only">Money in, spent, or transfer</legend>
           {(
             [
               ["in", "Money in"],
               ["out", "Spent"],
+              ["transfer", "Transfer"],
             ] as const
           ).map(([id, label]) => (
             <button
               key={id}
               type="button"
-              aria-pressed={direction === id}
+              data-testid={`log-mode-${id}`}
+              aria-pressed={mode === id}
+              // An existing transfer stays a transfer (and vice versa) when edited.
+              disabled={editing && (id === "transfer") !== isTransfer}
               onClick={() => {
-                if (direction === id) return;
-                setDirection(id);
+                if (mode === id) return;
+                setMode(id);
                 setParticularId("");
                 setChipId("");
                 setShowMore(false);
                 setBudgetLineId("");
               }}
-              className={`rounded-xl border px-3 py-3 text-sm font-semibold ${
-                direction === id
+              className={`rounded-xl border px-2 py-3 text-sm font-semibold disabled:opacity-40 ${
+                mode === id
                   ? "border-ink bg-ink text-paper"
                   : "border-paper-line bg-white text-ink"
               }`}
@@ -423,6 +569,7 @@ export function SimpleLogSheet({
           ) : null}
         </label>
 
+        {isTransfer ? null : (
         <fieldset
           aria-describedby={visibleErrors.category ? errId("category") : undefined}
         >
@@ -517,6 +664,7 @@ export function SimpleLogSheet({
             </p>
           ) : null}
         </fieldset>
+        )}
 
         {isBills ? (
           <label className="block" htmlFor={`${formId}-bill-name`}>
@@ -607,51 +755,89 @@ export function SimpleLogSheet({
           )
         ) : null}
 
-        {wallets.length === 0 ? (
-          <div className="rounded-xl border border-paper-line bg-white/70 p-3">
-            <p className="text-sm font-semibold text-ink">Add a wallet to record this</p>
-            <p className="mt-0.5 text-xs text-ink-muted">
-              Where the money is kept, like Cash or GCash. Leave the balance blank if
-              you are not sure.
-            </p>
-            <div className="mt-2 grid gap-2 sm:grid-cols-2">
-              <label className="block text-xs text-ink-muted" htmlFor={`${formId}-wallet-name`}>
-                Wallet name
-                <input
-                  id={`${formId}-wallet-name`}
-                  value={newWalletName}
-                  onChange={(event) => setNewWalletName(event.target.value)}
+        {isTransfer ? (
+          moveAccounts.length < 2 ? (
+            addWalletBlock("Add another wallet to transfer between")
+          ) : (
+            <>
+              <label className="block" htmlFor={`${formId}-move-from`}>
+                <span className={fieldLabel}>From</span>
+                <select
+                  id={`${formId}-move-from`}
+                  value={moveFromId}
+                  onChange={(event) => setTransferFrom(event.target.value)}
                   className={inputBox}
-                  placeholder="Cash"
-                  data-testid="log-new-wallet-name"
-                />
+                  aria-invalid={Boolean(visibleMoveErrors.from)}
+                  aria-describedby={visibleMoveErrors.from ? errId("from") : undefined}
+                  data-testid="log-move-from"
+                >
+                  {moveAccounts.map((account) => (
+                    <option key={account.id} value={account.id}>
+                      {account.name}
+                      {isBalanceKnown(account) ? "" : " (balance incomplete)"}
+                    </option>
+                  ))}
+                </select>
+                {visibleMoveErrors.from ? (
+                  <span id={errId("from")} className="mt-1 block text-xs font-semibold text-danger">
+                    {visibleMoveErrors.from}
+                  </span>
+                ) : null}
               </label>
-              <label className="block text-xs text-ink-muted" htmlFor={`${formId}-wallet-balance`}>
-                Starting balance (optional)
+              <label className="block" htmlFor={`${formId}-move-to`}>
+                <span className={fieldLabel}>To</span>
+                <select
+                  id={`${formId}-move-to`}
+                  value={moveToId}
+                  onChange={(event) => setTransferTo(event.target.value)}
+                  className={inputBox}
+                  aria-invalid={Boolean(visibleMoveErrors.to)}
+                  aria-describedby={visibleMoveErrors.to ? errId("to") : undefined}
+                  data-testid="log-move-to"
+                >
+                  {moveAccounts.map((account) => (
+                    <option key={account.id} value={account.id}>
+                      {account.name}
+                      {isBalanceKnown(account) ? "" : " (balance incomplete)"}
+                    </option>
+                  ))}
+                </select>
+                {visibleMoveErrors.to ? (
+                  <span id={errId("to")} className="mt-1 block text-xs font-semibold text-danger">
+                    {visibleMoveErrors.to}
+                  </span>
+                ) : null}
+              </label>
+              <label className="block" htmlFor={`${formId}-move-fee`}>
+                <span className={fieldLabel}>
+                  Transfer fee (₱){" "}
+                  <span className="normal-case tracking-normal">(optional)</span>
+                </span>
                 <input
-                  id={`${formId}-wallet-balance`}
+                  id={`${formId}-move-fee`}
                   inputMode="decimal"
-                  value={newWalletBalance}
-                  onChange={(event) => setNewWalletBalance(event.target.value)}
-                  className={inputBox}
-                  placeholder="Not sure"
+                  value={fee}
+                  onChange={(event) => setFee(event.target.value)}
+                  className={`${inputBox} ${visibleMoveErrors.fee ? "border-danger" : ""}`}
+                  placeholder="0"
+                  aria-invalid={Boolean(visibleMoveErrors.fee)}
+                  aria-describedby={`${formId}-move-fee-hint${visibleMoveErrors.fee ? ` ${errId("fee")}` : ""}`}
+                  data-testid="log-move-fee"
                 />
+                <span id={`${formId}-move-fee-hint`} className="mt-1 block text-xs text-ink-muted">
+                  The fee is logged as spending (Bank &amp; transfer fees), taken from{" "}
+                  {moveAccounts.find((a) => a.id === moveFromId)?.name ?? "the source wallet"}.
+                </span>
+                {visibleMoveErrors.fee ? (
+                  <span id={errId("fee")} className="mt-1 block text-xs font-semibold text-danger">
+                    {visibleMoveErrors.fee}
+                  </span>
+                ) : null}
               </label>
-            </div>
-            {walletError ? (
-              <p role="alert" className="mt-1 text-xs font-semibold text-danger">
-                {walletError}
-              </p>
-            ) : null}
-            <button
-              type="button"
-              onClick={addWallet}
-              className="mt-2 rounded-full border border-ink/20 px-4 py-2 text-sm font-semibold text-ink"
-              data-testid="log-new-wallet-add"
-            >
-              Add wallet
-            </button>
-          </div>
+            </>
+          )
+        ) : wallets.length === 0 ? (
+          addWalletBlock("Add a wallet to record this")
         ) : wallets.length === 1 ? (
           <p className="text-sm text-ink-muted" data-testid="log-wallet-default">
             {direction === "in" ? "Goes into" : "Paid from"}:{" "}
@@ -680,7 +866,7 @@ export function SimpleLogSheet({
             </select>
           </label>
         )}
-        {visibleErrors.wallet ? (
+        {visibleErrors.wallet && !isTransfer ? (
           <p className="-mt-3 text-xs font-semibold text-danger">{visibleErrors.wallet}</p>
         ) : null}
 
@@ -693,7 +879,7 @@ export function SimpleLogSheet({
             className="text-sm font-semibold text-ink underline-offset-2 hover:underline"
             data-testid="log-details-toggle"
           >
-            {detailsOpen ? "Hide details" : "Add date, note or bill"}
+            {detailsOpen ? "Hide details" : isTransfer ? "Add date or note" : "Add date, note or bill"}
           </button>
           {/* Hidden, not unmounted: values typed here are kept when collapsed. */}
           <div id={`${formId}-details`} hidden={!detailsOpen} className="mt-3 space-y-4">
@@ -724,7 +910,7 @@ export function SimpleLogSheet({
                 data-testid="log-note"
               />
             </label>
-            {direction === "out" && !isUtang ? (
+            {mode === "out" && !isUtang ? (
               <label className="block" htmlFor={`${formId}-bill-link`}>
                 <span className={fieldLabel}>Planned bill (optional)</span>
                 <select

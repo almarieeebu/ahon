@@ -9,6 +9,7 @@ import { useFinance } from "@/context/FinanceContext";
 import { php } from "@/lib/money";
 import { particularLabel } from "@/lib/refs";
 import { accountName, kindLabel, monthOf, sortedTx } from "@/lib/selectors";
+import { isWalletTransfer } from "@/lib/simpleLog";
 import type { Transaction } from "@/lib/types";
 
 type FilterId = "all" | "spending" | "income" | "loans";
@@ -68,7 +69,7 @@ export function Ledger({
       return;
     }
     setEditing(tx);
-    if (tx.kind === "income" || tx.kind === "expense") {
+    if (tx.kind === "income" || tx.kind === "expense" || isWalletTransfer(tx)) {
       setOpen(false);
       setSimpleOpen(true);
       return;
@@ -374,8 +375,10 @@ function rowMeta(
   state: ReturnType<typeof useFinance>["state"],
   tx: Transaction,
 ) {
-  const categoryName =
-    state.categories.find((c) => c.id === tx.category)?.name ??
+  const walletTransfer = isWalletTransfer(tx);
+  const categoryName = walletTransfer
+    ? "Transfer"
+    : state.categories.find((c) => c.id === tx.category)?.name ??
     (tx.category === "income" ||
     tx.category === "savings" ||
     tx.category === "debt"
@@ -396,7 +399,7 @@ function rowMeta(
     tx.note,
   ].filter(Boolean);
   return {
-    particular,
+    particular: particular || (walletTransfer ? "Transfer" : ""),
     categoryName,
     subtitle: bits.join(" · "),
   };

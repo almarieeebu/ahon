@@ -184,6 +184,14 @@ export function presetState(): AppState {
       tone: "personal",
     },
     {
+      id: "cat-bank-fees",
+      name: "Bank & transfer fees",
+      planned: 0,
+      dueDay: 0,
+      kind: "expense",
+      tone: "default",
+    },
+    {
       id: "cat-others",
       name: "Miscellaneous / unexpected",
       planned: 0,
@@ -211,6 +219,7 @@ export function presetState(): AppState {
     { id: "p-debt", name: "DEBT PAYMENT", categoryId: "cat-debt" },
     { id: "p-tigum", name: "TIGUM", categoryId: "cat-savings" },
     { id: "p-personal", name: "PERSONAL", categoryId: "cat-personal" },
+    { id: "p-bank-fees", name: "BANK / TRANSFER FEES", categoryId: "cat-bank-fees" },
     {
       id: "p-misc",
       name: "MISCELLANEOUS",

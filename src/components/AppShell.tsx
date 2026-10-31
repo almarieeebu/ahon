@@ -56,7 +56,7 @@ const MENU_SETUP: { id: MoreFocusTab; label: string; hint: string; icon: IconNam
 ];
 
 /** Forms that can open over any page. */
-type QuickAction = "expense" | "log" | "loan" | "payment";
+type QuickAction = "expense" | "log" | "transfer" | "loan" | "payment";
 
 export function AppShell() {
   const { ready, savedAt, month, setMonth, state } = useFinance();
@@ -117,6 +117,7 @@ export function AppShell() {
   const quickActions: { id: QuickAction | "budget"; label: string; hint: string; icon: IconName }[] = [
     { id: "expense", label: "Add expense", hint: "Gastos, bills, anything you paid", icon: "expense" },
     { id: "log", label: "Log money", hint: "Payday, money in, transfers", icon: "income" },
+    { id: "transfer", label: "Transfer", hint: "Move money between wallets, with fee", icon: "transfer" },
     { id: "loan", label: "Add loan", hint: "Utang you owe or just borrowed", icon: "loans" },
     ...(hasLoans
       ? [{ id: "payment" as const, label: "Record payment", hint: "Pay toward a loan", icon: "pay" as const }]
@@ -399,9 +400,17 @@ export function AppShell() {
 
       <SimpleLogSheet
         key={action ?? "closed"}
-        open={action === "expense" || action === "log"}
-        prefill={action === "expense" ? { direction: "out" } : undefined}
-        title={action === "expense" ? "Add expense" : undefined}
+        open={action === "expense" || action === "log" || action === "transfer"}
+        prefill={
+          action === "expense"
+            ? { direction: "out" }
+            : action === "transfer"
+              ? { direction: "transfer" }
+              : undefined
+        }
+        title={
+          action === "expense" ? "Add expense" : action === "transfer" ? "Transfer" : undefined
+        }
         onAddLoan={() => setAction("loan")}
         onAddBorrowed={openBorrowed}
         onClose={() => setAction(null)}
