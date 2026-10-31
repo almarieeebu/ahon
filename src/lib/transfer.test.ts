@@ -4,6 +4,7 @@ import { emptyAccount, presetState } from "@/lib/defaults";
 import { deriveBudget, summarizeMonthOverview } from "@/lib/periodBudget";
 import { accountBalances } from "@/lib/selectors";
 import {
+  applyDeleteTransaction,
   applyTransfer,
   applyTransferUpdate,
   buildTransferTransactions,
@@ -127,5 +128,30 @@ describe("transfers", () => {
     assert.equal(noFee.transactions.length, 1);
     assert.equal(transferFeeAmount(noFee, "t1"), 0);
     assert.equal(accountBalances(noFee).ub, 4000);
+  });
+});
+
+describe("deleting a transfer", () => {
+  it("also deletes its fee row and restores both wallets", () => {
+    const next = applyTransfer(books(), draft)!;
+    const after = applyDeleteTransaction(next, "t1");
+    assert.ok(!after.transactions.some((t) => t.id === "t1"));
+    assert.ok(!after.transactions.some((t) => t.id === transferFeeId("t1")));
+    const bal = accountBalances(after);
+    assert.equal(bal.ub, 5000);
+    assert.equal(bal["cash-on-hand"], 200);
+  });
+
+  it("leaves other rows alone when deleting a non-transfer", () => {
+    const next = applyTransfer(books(), draft)!;
+    const after = applyDeleteTransaction(next, transferFeeId("t1"));
+    assert.ok(after.transactions.some((t) => t.id === "t1"));
+    assert.equal(transferFeeAmount(after, "t1"), 0);
+  });
+
+  it("works for a transfer without a fee", () => {
+    const next = applyTransfer(books(), { ...draft, fee: 0 })!;
+    const after = applyDeleteTransaction(next, "t1");
+    assert.equal(after.transactions.length, books().transactions.length);
   });
 });

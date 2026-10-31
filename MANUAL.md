@@ -1,6 +1,6 @@
 # Ahon — family & friends manual
 
-**Live app:** https://ahon-kohl.vercel.app  
+**Live app:** https://ahon-app.vercel.app  
 
 Ahon = *to rise* — a private money notebook for cash, tigum, utang, a simple month plan, and real spending.
 
@@ -8,7 +8,7 @@ Ahon = *to rise* — a private money notebook for cash, tigum, utang, a simple m
 
 ## Quick start (phone)
 
-1. Open https://ahon-kohl.vercel.app  
+1. Open https://ahon-app.vercel.app  
 2. **Sign up** with your email (or Sign in if you already have an account).  
 3. Answer three screens: pay and cash, usual bills, optional utang and a small cash cushion.  
 4. When money moves, tap **Log money**.  

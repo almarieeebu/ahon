@@ -7,7 +7,7 @@ Private money journal for cash, tigum, and every utang.
 See [Financial-management concerns](./FINANCIAL-CONCERNS.md) for the product
 questions and safety guardrails that guide Ahon.
 
-**Live:** [https://ahon-kohl.vercel.app](https://ahon-kohl.vercel.app/)
+**Live:** [https://ahon-app.vercel.app](https://ahon-app.vercel.app/)
 
 > New to this stack? Read **[LEARN.md](./LEARN.md)** (dev walkthrough).  
 > Sharing with family? Read **[MANUAL.md](./MANUAL.md)** (simple user guide).
@@ -45,7 +45,7 @@ and wallets later from **Menu**.
 
 ## Deploy (Vercel)
 
-- Production: [https://ahon-kohl.vercel.app](https://ahon-kohl.vercel.app/)
+- Production: [https://ahon-app.vercel.app](https://ahon-app.vercel.app/)
 - Repo: [github.com/almariebu/ahon](https://github.com/almariebu/ahon) (private)
 
 ### Checklist after deploy
@@ -55,9 +55,9 @@ and wallets later from **Menu**.
    - `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` (or `NEXT_PUBLIC_SUPABASE_ANON_KEY`)
    - Redeploy after adding/changing env vars
 2. Supabase → **Authentication** → **URL Configuration**:
-   - **Site URL** = `https://ahon-kohl.vercel.app`
+   - **Site URL** = `https://ahon-app.vercel.app`
    - **Redirect URLs** include:
-     - `https://ahon-kohl.vercel.app/**`
+     - `https://ahon-app.vercel.app/**`
      - `http://localhost:3100/**`
 3. Supabase → **SQL Editor**: re-run `supabase/schema.sql` (or the migrate block at the bottom) so `transactions.kind` allows `adjustment`, and confirm **RLS is enabled** on all Ahon tables with `*_own` policies (`user_id = auth.uid()` / profiles `id = auth.uid()`).
 4. Open the live site → Sign in → **Menu → Profile** should say **Synced to Supabase**

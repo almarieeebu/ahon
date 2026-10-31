@@ -146,7 +146,7 @@ export const MANUAL_SECTIONS: ManualSection[] = [
     paragraphs: [
       "Each person should use their own Sign up email (or one shared household login you all trust).",
       "Do not share your password in chat. Send only the app link and this Manual.",
-      "Live app: https://ahon-kohl.vercel.app — Sign up → Add expense → Help anytime.",
+      "Live app: https://ahon-app.vercel.app — Sign up → Add expense → Help anytime.",
     ],
   },
   {

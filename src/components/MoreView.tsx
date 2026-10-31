@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useRef, useState } from "react";
+import { FormEvent, useRef, useState, useSyncExternalStore } from "react";
 import { AccountsPanel } from "@/components/AccountsPanel";
 import { BudgetPanel } from "@/components/BudgetPanel";
 import { Modal } from "@/components/Modal";
@@ -12,6 +12,20 @@ import { exportState, parseImport } from "@/lib/storage";
 type MoreTab = "accounts" | "particulars" | "budget" | "profile";
 
 export type MoreFocusTab = MoreTab;
+
+/** Fallback share link for SSR (and before hydration). */
+const LIVE_SITE_URL = "https://ahon-app.vercel.app";
+
+const noopSubscribe = () => () => {};
+
+/** The site the app is running on, so the share link never goes stale. */
+function useSiteOrigin(): string {
+  return useSyncExternalStore(
+    noopSubscribe,
+    () => window.location.origin,
+    () => LIVE_SITE_URL,
+  );
+}
 
 const MORE_TABS: { id: MoreTab; label: string }[] = [
   { id: "budget", label: "Income & recurring bills" },
@@ -41,6 +55,7 @@ export function MoreView({
     savedAt,
   } = useFinance();
   const { user, signOut, cloudEnabled, requestSignIn } = useAuth();
+  const siteOrigin = useSiteOrigin();
   const fileRef = useRef<HTMLInputElement>(null);
   const [tab, setTab] = useState<MoreTab>(focusTab ?? "budget");
   const [addOpen, setAddOpen] = useState(false);
@@ -406,7 +421,7 @@ export function MoreView({
           <div className="rounded-2xl border border-paper-line bg-white/60 px-4 py-3 text-sm text-ink-muted">
             Share Ahon with family: send{" "}
             <span className="font-semibold text-ink">
-              https://ahon-kohl.vercel.app
+              {siteOrigin}
             </span>{" "}
             and ask them to Sign up, then follow the welcome tour. Help tip is
             always on the top-right of each page.
