@@ -64,4 +64,20 @@ test.describe("Log update", () => {
     await expect(visible(page, "log-row-amount")).toContainText("175");
     await expect(visible(page, "log-row-amount")).not.toContainText("150");
   });
+
+  test("Money in: Borrowed opens Add loan as new borrowing with the amount", async ({
+    page,
+  }) => {
+    await enterApp(page);
+
+    await page.getByTestId("log-add").click();
+    await page.getByRole("button", { name: "Money in" }).click();
+    await page.getByTestId("log-amount").fill("5000");
+    await expect(page.getByTestId("log-new-category")).toBeVisible();
+    await page.getByTestId("log-borrowed").click();
+
+    await expect(page.getByRole("heading", { name: "Log money" })).toHaveCount(0);
+    await expect(page.getByTestId("loan-kind-new")).toBeChecked();
+    await expect(page.getByTestId("loan-amount")).toHaveValue("5000");
+  });
 });

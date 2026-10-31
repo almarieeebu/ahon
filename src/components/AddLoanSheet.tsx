@@ -15,7 +15,7 @@ import { longDate } from "@/lib/schedule";
 import { byKind, isBalanceKnown } from "@/lib/selectors";
 import type { LiabilityType } from "@/lib/types";
 
-type LoanKind = "existing" | "new";
+export type LoanKind = "existing" | "new";
 
 const NEW_WALLET = "__new_wallet__";
 
@@ -49,30 +49,47 @@ export function AddLoanSheet({
   open,
   onClose,
   onViewLoans,
+  initialKind,
+  initialAmount,
 }: {
   open: boolean;
   onClose: () => void;
   /** Shown after saving when opened outside the Loans page. */
   onViewLoans?: () => void;
+  /** Preselect "I already owe this" or "I received this money now". */
+  initialKind?: LoanKind;
+  /** Prefill the amount, e.g. what was typed in Log money. */
+  initialAmount?: string;
 }) {
   if (!open) return null;
-  return <AddLoanForm onClose={onClose} onViewLoans={onViewLoans} />;
+  return (
+    <AddLoanForm
+      onClose={onClose}
+      onViewLoans={onViewLoans}
+      initialKind={initialKind}
+      initialAmount={initialAmount}
+    />
+  );
 }
 
 function AddLoanForm({
   onClose,
   onViewLoans,
+  initialKind,
+  initialAmount,
 }: {
   onClose: () => void;
   onViewLoans?: () => void;
+  initialKind?: LoanKind;
+  initialAmount?: string;
 }) {
   const { state, addExistingLoan, addNewBorrowing } = useFinance();
   const baseId = useId();
   const wallets = [...byKind(state, "cash"), ...byKind(state, "savings")];
 
-  const [kind, setKind] = useState<LoanKind | "">("");
+  const [kind, setKind] = useState<LoanKind | "">(initialKind ?? "");
   const [name, setName] = useState("");
-  const [amount, setAmount] = useState("");
+  const [amount, setAmount] = useState(initialAmount ?? "");
   const [walletChoice, setWalletChoice] = useState(
     wallets.length === 1 ? wallets[0].id : "",
   );

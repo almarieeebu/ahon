@@ -56,6 +56,7 @@ export function SimpleLogSheet({
   onManageParticulars,
   onManageCategories,
   onAddLoan,
+  onAddBorrowed,
   title,
 }: {
   open: boolean;
@@ -66,6 +67,11 @@ export function SimpleLogSheet({
   onManageCategories?: () => void;
   /** Shown when Utang is picked but no loan exists yet. */
   onAddLoan?: () => void;
+  /**
+   * Money in: "Borrowed (utang)" chip. Borrowed cash is a loan, not income,
+   * so this closes the sheet and opens Add loan with the amount typed so far.
+   */
+  onAddBorrowed?: (amount: string) => void;
   /** Heading for a new entry, e.g. "Add expense". */
   title?: string;
 }) {
@@ -346,6 +352,7 @@ export function SimpleLogSheet({
   }
 
   const selectedWallet = wallets.find((w) => w.id === walletId);
+  const manageNew = direction === "in" ? onManageParticulars : onManageCategories;
 
   return (
     <Modal
@@ -443,6 +450,20 @@ export function SimpleLogSheet({
                 {chip.label}
               </button>
             ))}
+            {direction === "in" && onAddBorrowed && !editing ? (
+              <button
+                type="button"
+                data-testid="log-borrowed"
+                onClick={() => {
+                  const typed = amount.trim();
+                  onClose();
+                  onAddBorrowed(typed);
+                }}
+                className="rounded-full border border-paper-line bg-white px-3 py-2 text-sm font-semibold text-ink"
+              >
+                Borrowed (utang)
+              </button>
+            ) : null}
             {extra.length > 0 ? (
               <button
                 type="button"
@@ -451,6 +472,20 @@ export function SimpleLogSheet({
                 className="rounded-full border border-paper-line bg-paper px-3 py-2 text-sm font-semibold text-ink-muted"
               >
                 More
+              </button>
+            ) : null}
+            {manageNew && !editing ? (
+              <button
+                type="button"
+                data-testid="log-new-category"
+                aria-label={direction === "in" ? "Add a new source" : "Add a new category"}
+                onClick={() => {
+                  onClose();
+                  manageNew();
+                }}
+                className="rounded-full border border-dashed border-paper-line bg-paper px-3 py-2 text-sm font-semibold text-ink-muted"
+              >
+                + New
               </button>
             ) : null}
           </div>
