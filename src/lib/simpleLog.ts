@@ -717,6 +717,18 @@ export function applyTransferUpdate(
   });
 }
 
+/**
+ * Delete an entry. A transfer takes its fee expense (`<id>-fee`) with it so
+ * no orphan fee is left behind; cloud sync replaces the user's rows from
+ * state, so the fee row is removed remotely too.
+ */
+export function applyDeleteTransaction(state: AppState, id: string): AppState {
+  const current = state.transactions.find((row) => row.id === id);
+  const next = applyRemoveTransaction(state, id);
+  if (current?.kind !== "transfer") return next;
+  return applyRemoveTransaction(next, transferFeeId(id));
+}
+
 /** Fee amount saved with a transfer, or 0. */
 export function transferFeeAmount(state: AppState, transferId: string): number {
   const fee = state.transactions.find((row) => row.id === transferFeeId(transferId));

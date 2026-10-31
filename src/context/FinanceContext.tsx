@@ -21,6 +21,7 @@ import {
 } from "@/lib/periodBudget";
 import { resolveParticularRef } from "@/lib/refs";
 import {
+  applyDeleteTransaction,
   applySimpleLog,
   applySimpleUpdate,
   applyUpdateTransaction,
@@ -36,7 +37,6 @@ import {
 } from "@/lib/loans";
 import {
   applyLoanPayment,
-  applyRemoveTransaction,
   installmentShortfall,
 } from "@/lib/payments";
 import { scheduleRemaining } from "@/lib/schedule";
@@ -274,7 +274,8 @@ export function FinanceProvider({ children }: { children: ReactNode }) {
 
   const removeTransaction = useCallback((id: string) => {
     // Reverses wallet/loan balances (derived), installment and bill status.
-    setState((prev) => applyRemoveTransaction(prev, id));
+    // A transfer's fee row (`<id>-fee`) is deleted with it.
+    setState((prev) => applyDeleteTransaction(prev, id));
   }, []);
 
   const upsertAccount = useCallback((account: Account) => {
