@@ -3,6 +3,7 @@
 import { FormEvent, useState } from "react";
 import { useAuth } from "@/context/AuthContext";
 import { APP_NAME, APP_TAGLINE } from "@/lib/defaults";
+import { MIN_PASSWORD_LENGTH } from "@/lib/authRecovery";
 
 /**
  * Login / Sign up screen when Supabase is configured.
@@ -12,12 +13,13 @@ export function AuthScreen({ onBack }: { onBack?: () => void }) {
   const {
     signIn,
     signUp,
+    requestPasswordReset,
     continueLocal,
     cloudEnabled,
     authNotice,
     clearAuthNotice,
   } = useAuth();
-  const [mode, setMode] = useState<"signin" | "signup">("signin");
+  const [mode, setMode] = useState<"signin" | "signup" | "forgot">("signin");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -30,6 +32,18 @@ export function AuthScreen({ onBack }: { onBack?: () => void }) {
     setInfo(null);
     clearAuthNotice();
     setBusy(true);
+    if (mode === "forgot") {
+      const resetErr = await requestPasswordReset(email.trim());
+      setBusy(false);
+      if (resetErr) {
+        setError(resetErr);
+        return;
+      }
+      setInfo(
+        "Check your email for a link to reset your password. It may take a minute — look in spam too.",
+      );
+      return;
+    }
     const err =
       mode === "signin"
         ? await signIn(email.trim(), password)
@@ -45,6 +59,12 @@ export function AuthScreen({ onBack }: { onBack?: () => void }) {
       );
       setMode("signin");
     }
+  }
+
+  function switchMode(next: "signin" | "signup" | "forgot") {
+    setMode(next);
+    setError(null);
+    setInfo(null);
   }
 
   return (
@@ -81,30 +101,42 @@ export function AuthScreen({ onBack }: { onBack?: () => void }) {
 
       {cloudEnabled ? (
         <form onSubmit={onSubmit} className="mt-8 space-y-4">
-          <div className="flex gap-2">
-            <button
-              type="button"
-              onClick={() => setMode("signin")}
-              className={`rounded-full px-4 py-2 text-sm font-semibold ${
-                mode === "signin"
-                  ? "bg-ink text-paper"
-                  : "border border-paper-line text-ink-muted"
-              }`}
-            >
-              Sign in
-            </button>
-            <button
-              type="button"
-              onClick={() => setMode("signup")}
-              className={`rounded-full px-4 py-2 text-sm font-semibold ${
-                mode === "signup"
-                  ? "bg-ink text-paper"
-                  : "border border-paper-line text-ink-muted"
-              }`}
-            >
-              Sign up
-            </button>
-          </div>
+          {mode === "forgot" ? (
+            <div>
+              <h2 className="text-lg font-semibold text-ink">
+                Reset your password
+              </h2>
+              <p className="mt-1 text-sm text-ink-muted">
+                Enter your account email and we’ll send you a link to set a new
+                password.
+              </p>
+            </div>
+          ) : (
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => switchMode("signin")}
+                className={`rounded-full px-4 py-2 text-sm font-semibold ${
+                  mode === "signin"
+                    ? "bg-ink text-paper"
+                    : "border border-paper-line text-ink-muted"
+                }`}
+              >
+                Sign in
+              </button>
+              <button
+                type="button"
+                onClick={() => switchMode("signup")}
+                className={`rounded-full px-4 py-2 text-sm font-semibold ${
+                  mode === "signup"
+                    ? "bg-ink text-paper"
+                    : "border border-paper-line text-ink-muted"
+                }`}
+              >
+                Sign up
+              </button>
+            </div>
+          )}
 
           <label className="block text-sm text-ink-muted">
             Email
@@ -117,20 +149,31 @@ export function AuthScreen({ onBack }: { onBack?: () => void }) {
               required
             />
           </label>
-          <label className="block text-sm text-ink-muted">
-            Password
-            <input
-              type="password"
-              autoComplete={
-                mode === "signin" ? "current-password" : "new-password"
-              }
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              minLength={6}
-              className="mt-1 w-full rounded-xl border border-paper-line bg-white px-3 py-3 text-base text-ink"
-              required
-            />
-          </label>
+          {mode !== "forgot" ? (
+            <label className="block text-sm text-ink-muted">
+              Password
+              <input
+                type="password"
+                autoComplete={
+                  mode === "signin" ? "current-password" : "new-password"
+                }
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                minLength={MIN_PASSWORD_LENGTH}
+                className="mt-1 w-full rounded-xl border border-paper-line bg-white px-3 py-3 text-base text-ink"
+                required
+              />
+            </label>
+          ) : null}
+          {mode === "signin" ? (
+            <button
+              type="button"
+              onClick={() => switchMode("forgot")}
+              className="-mt-2 text-sm font-semibold text-ink-muted underline-offset-2 hover:underline"
+            >
+              Forgot password?
+            </button>
+          ) : null}
 
           {error ? (
             <p className="text-base text-danger" role="alert">
@@ -148,8 +191,19 @@ export function AuthScreen({ onBack }: { onBack?: () => void }) {
               ? "Please wait…"
               : mode === "signin"
                 ? "Sign in"
-                : "Create account"}
+                : mode === "signup"
+                  ? "Create account"
+                  : "Send reset link"}
           </button>
+          {mode === "forgot" ? (
+            <button
+              type="button"
+              onClick={() => switchMode("signin")}
+              className="text-sm font-semibold text-ink-muted underline-offset-2 hover:underline"
+            >
+              ← Back to sign in
+            </button>
+          ) : null}
         </form>
       ) : null}
 
