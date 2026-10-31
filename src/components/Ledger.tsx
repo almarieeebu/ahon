@@ -6,20 +6,48 @@ import { RecordForm } from "@/components/RecordForm";
 import { DetailList, SidePanel, panelDanger, panelPrimary } from "@/components/SidePanel";
 import { SimpleLogSheet } from "@/components/SimpleLogSheet";
 import { useFinance } from "@/context/FinanceContext";
-import { php } from "@/lib/money";
+import {
+  accountFlowLabel,
+  accountGroups,
+  activityTotals,
+  DEFAULT_ACTIVITY_FILTER,
+  filterActivity,
+  isCustomDate,
+  KIND_FILTERS,
+  parseActivityFilter,
+  txFlow,
+  type ActivityFilter,
+  type DateFilter,
+  type Flow,
+  type KindFilterId,
+} from "@/lib/activityFilter";
+import { php, todayIso } from "@/lib/money";
+import { monthBounds } from "@/lib/periodBudget";
 import { particularLabel } from "@/lib/refs";
 import { accountName, kindLabel, monthOf, sortedTx } from "@/lib/selectors";
 import { isWalletTransfer } from "@/lib/simpleLog";
 import type { Transaction } from "@/lib/types";
 
-type FilterId = "all" | "spending" | "income" | "loans";
+const FILTER_STORAGE_KEY = "ahon.activityFilter";
 
-const FILTERS: Record<FilterId, { label: string; kinds: Transaction["kind"][] }> = {
-  all: { label: "All", kinds: [] },
-  spending: { label: "Spending", kinds: ["expense"] },
-  income: { label: "Money in", kinds: ["income"] },
-  loans: { label: "Loans & transfers", kinds: ["payment", "borrow", "transfer", "adjustment"] },
-};
+function loadFilter(): ActivityFilter {
+  try {
+    return parseActivityFilter(window.sessionStorage.getItem(FILTER_STORAGE_KEY));
+  } catch {
+    return DEFAULT_ACTIVITY_FILTER;
+  }
+}
+
+function saveFilter(filter: ActivityFilter) {
+  try {
+    window.sessionStorage.setItem(FILTER_STORAGE_KEY, JSON.stringify(filter));
+  } catch {
+    // Storage blocked: the filter still works for this visit.
+  }
+}
+
+const filterControl =
+  "min-h-10 min-w-0 rounded-lg border border-paper-line bg-white px-2 text-sm text-ink";
 
 export function Ledger({
   onManageParticulars,
@@ -38,15 +66,38 @@ export function Ledger({
   const [editing, setEditing] = useState<Transaction | null>(null);
   const [addMode, setAddMode] = useState<"expense" | "any">("any");
   const [detailId, setDetailId] = useState<string | null>(null);
-  const [filter, setFilter] = useState<FilterId>("all");
+  const [filter, setFilterState] = useState<ActivityFilter>(loadFilter);
 
-  const rows = useMemo(
-    () =>
-      sortedTx(state.transactions)
-        .filter((tx) => monthOf(tx) === month)
-        .reverse(),
-    [month, state.transactions],
-  );
+  function setFilter(next: ActivityFilter) {
+    setFilterState(next);
+    saveFilter(next);
+  }
+
+  function setDateMode(mode: DateFilter["mode"]) {
+    const { start, end } = monthBounds(month);
+    const today = todayIso();
+    const inMonth = today >= start && today <= end;
+    const date: DateFilter =
+      mode === "day"
+        ? { mode, from: inMonth ? today : start }
+        : mode === "range"
+          ? { mode, from: start, to: inMonth ? today : end }
+          : { mode };
+    setFilter({ ...filter, date });
+  }
+
+  const allRows = useMemo(() => sortedTx(state.transactions).reverse(), [state.transactions]);
+  const rows = useMemo(() => allRows.filter((tx) => monthOf(tx) === month), [allRows, month]);
+  const accountOptions = useMemo(() => accountGroups(state.accounts), [state.accounts]);
+  // A saved account that was since removed or archived falls back to all.
+  const accountId = accountOptions.some((g) => g.accounts.some((a) => a.id === filter.accountId))
+    ? filter.accountId
+    : "";
+  const effective = { ...filter, accountId };
+  const shown = filterActivity(allRows, effective, month);
+  const shownTotals = activityTotals(shown, accountId);
+  const customDate = isCustomDate(filter.date);
+  const filtered = filter.kind !== "all" || customDate || Boolean(accountId);
 
   function closeModal() {
     setOpen(false);
@@ -89,7 +140,6 @@ export function Ledger({
   }
 
   const detail = detailId ? state.transactions.find((tx) => tx.id === detailId) : undefined;
-  const shown = filter === "all" ? rows : rows.filter((tx) => FILTERS[filter].kinds.includes(tx.kind));
   const totals = useMemo(() => {
     const sum = (kind: Transaction["kind"]) =>
       rows.filter((tx) => tx.kind === kind).reduce((s, tx) => s + tx.amount, 0);
@@ -132,32 +182,140 @@ export function Ledger({
 
       <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_17rem]">
         <div className="min-w-0 space-y-3">
-          {rows.length > 0 ? (
-            <div className="-mx-1 flex gap-1.5 overflow-x-auto px-1 pb-1" role="group" aria-label="Show">
-              {(Object.keys(FILTERS) as FilterId[]).map((id) => (
-                <button
-                  key={id}
-                  type="button"
-                  aria-pressed={filter === id}
-                  onClick={() => setFilter(id)}
-                  className={`min-h-9 shrink-0 rounded-full px-3.5 text-sm font-semibold ${
-                    filter === id
-                      ? "bg-ink text-paper"
-                      : "border border-paper-line bg-white text-ink-muted hover:text-ink"
-                  }`}
-                >
-                  {FILTERS[id].label}
-                </button>
-              ))}
+          {state.transactions.length > 0 ? (
+            <div className="space-y-2" data-testid="log-filters">
+              <div className="-mx-1 flex gap-1.5 overflow-x-auto px-1 pb-1" role="group" aria-label="Show">
+                {(Object.keys(KIND_FILTERS) as KindFilterId[]).map((id) => (
+                  <button
+                    key={id}
+                    type="button"
+                    aria-pressed={filter.kind === id}
+                    onClick={() => setFilter({ ...filter, kind: id })}
+                    className={`min-h-9 shrink-0 rounded-full px-3.5 text-sm font-semibold ${
+                      filter.kind === id
+                        ? "bg-ink text-paper"
+                        : "border border-paper-line bg-white text-ink-muted hover:text-ink"
+                    }`}
+                  >
+                    {KIND_FILTERS[id].label}
+                  </button>
+                ))}
+              </div>
+              <div className="flex flex-wrap items-end gap-2">
+                <label className="flex min-w-0 flex-col text-xs text-ink-muted">
+                  Date
+                  <select
+                    data-testid="log-filter-date-mode"
+                    value={filter.date.mode}
+                    onChange={(e) => setDateMode(e.target.value as DateFilter["mode"])}
+                    className={`mt-1 ${filterControl}`}
+                  >
+                    <option value="month">Whole month</option>
+                    <option value="day">One day</option>
+                    <option value="range">Date range</option>
+                  </select>
+                </label>
+                {filter.date.mode === "day" ? (
+                  <label className="flex min-w-0 flex-col text-xs text-ink-muted">
+                    Day
+                    <input
+                      type="date"
+                      data-testid="log-filter-day"
+                      value={filter.date.from}
+                      onChange={(e) => setFilter({ ...filter, date: { mode: "day", from: e.target.value } })}
+                      className={`mt-1 ${filterControl}`}
+                    />
+                  </label>
+                ) : null}
+                {filter.date.mode === "range" ? (
+                  <>
+                    <label className="flex min-w-0 flex-col text-xs text-ink-muted">
+                      From
+                      <input
+                        type="date"
+                        data-testid="log-filter-from"
+                        value={filter.date.from}
+                        max={filter.date.to || undefined}
+                        onChange={(e) =>
+                          setFilter({
+                            ...filter,
+                            date: { mode: "range", from: e.target.value, to: filter.date.mode === "range" ? filter.date.to : "" },
+                          })
+                        }
+                        className={`mt-1 ${filterControl}`}
+                      />
+                    </label>
+                    <label className="flex min-w-0 flex-col text-xs text-ink-muted">
+                      To
+                      <input
+                        type="date"
+                        data-testid="log-filter-to"
+                        value={filter.date.to}
+                        min={filter.date.from || undefined}
+                        onChange={(e) =>
+                          setFilter({
+                            ...filter,
+                            date: { mode: "range", from: filter.date.mode === "range" ? filter.date.from : "", to: e.target.value },
+                          })
+                        }
+                        className={`mt-1 ${filterControl}`}
+                      />
+                    </label>
+                  </>
+                ) : null}
+                <label className="flex min-w-0 max-w-full flex-col text-xs text-ink-muted">
+                  Account
+                  <select
+                    data-testid="log-filter-account"
+                    value={accountId}
+                    onChange={(e) => setFilter({ ...filter, accountId: e.target.value })}
+                    className={`mt-1 max-w-full ${filterControl}`}
+                  >
+                    <option value="">All accounts</option>
+                    {accountOptions.map((group) => (
+                      <optgroup key={group.label} label={group.label}>
+                        {group.accounts.map((account) => (
+                          <option key={account.id} value={account.id}>
+                            {account.name}
+                          </option>
+                        ))}
+                      </optgroup>
+                    ))}
+                  </select>
+                </label>
+                {filtered ? (
+                  <button
+                    type="button"
+                    data-testid="log-filter-clear"
+                    onClick={() => setFilter(DEFAULT_ACTIVITY_FILTER)}
+                    className="min-h-10 rounded-full px-3 text-sm font-semibold text-ink-muted underline-offset-2 hover:text-ink hover:underline"
+                  >
+                    Clear filters
+                  </button>
+                ) : null}
+              </div>
+              {filtered ? (
+                <p className="text-sm text-ink-muted" data-testid="log-filter-summary" aria-live="polite">
+                  <span className="font-semibold text-ink">
+                    {shownTotals.count} matching
+                  </span>
+                  {" · "}
+                  <span className="text-ok">+{php(shownTotals.moneyIn)} in</span>
+                  {" · "}
+                  <span>−{php(shownTotals.moneyOut)} out</span>
+                </p>
+              ) : null}
             </div>
           ) : null}
 
-          {rows.length === 0 ? (
+          {rows.length === 0 && !filtered ? (
             <p className="sheet-empty">
               Tap Add expense for gastos, or Log money for payday and bills.
             </p>
           ) : shown.length === 0 ? (
-            <p className="sheet-empty">Nothing of this kind this month.</p>
+            <p className="sheet-empty">
+              {filtered ? "Nothing matches these filters." : "Nothing of this kind this month."}
+            </p>
           ) : (
             <div className="overflow-hidden rounded-2xl border border-paper-line bg-white/80">
               <div
@@ -172,7 +330,7 @@ export function Ledger({
               <ul className="divide-y divide-paper-line">
                 {shown.map((tx) => {
                   const meta = rowMeta(state, tx);
-                  const inflow = isInflow(tx);
+                  const flow = txFlow(tx, accountId);
                   const active = tx.id === detailId;
                   return (
                     <li key={tx.id}>
@@ -185,11 +343,15 @@ export function Ledger({
                           active ? "bg-gold-soft/60" : ""
                         }`}
                       >
-                        <span className="col-start-1 row-start-2 text-xs text-ink-muted md:row-start-1 md:text-sm">
+                        <span
+                          data-testid="log-row-meta"
+                          className="col-start-1 row-start-2 min-w-0 truncate text-xs text-ink-muted md:row-start-1 md:text-sm"
+                        >
                           {tx.date}
                           <span className="md:hidden">
                             {" · "}
                             {meta.categoryName || kindLabel(tx.kind)}
+                            {meta.account ? ` · ${meta.account}` : ""}
                           </span>
                         </span>
                         <span className="col-start-1 row-start-1 min-w-0 md:col-start-2">
@@ -207,10 +369,9 @@ export function Ledger({
                         </span>
                         <span
                           data-testid="log-row-amount"
-                          className={`col-start-2 row-span-2 row-start-1 text-right font-display font-semibold tabular-nums md:col-start-4 md:row-span-1 ${inflow ? "text-ok" : "text-ink"}`}
+                          className={`col-start-2 row-span-2 row-start-1 text-right font-display font-semibold tabular-nums md:col-start-4 md:row-span-1 ${flowColor(flow)}`}
                         >
-                          {inflow ? "+" : "−"}
-                          {php(tx.amount)}
+                          <SignedAmount flow={flow} amount={tx.amount} />
                         </span>
                       </button>
                     </li>
@@ -323,18 +484,27 @@ export function Ledger({
   );
 }
 
-function isInflow(tx: Transaction): boolean {
+function flowColor(flow: Flow): string {
+  return flow === "in" ? "text-ok" : flow === "neutral" ? "text-ink-muted" : "text-ink";
+}
+
+/** "+₱100" in, "−₱100" out, "⇄ ₱100" for moves between your own wallets. */
+function SignedAmount({ flow, amount }: { flow: Flow; amount: number }) {
   return (
-    tx.kind === "income" ||
-    (tx.kind === "borrow" && Boolean(tx.toId)) ||
-    (tx.kind === "adjustment" && Boolean(tx.toId) && !tx.fromId)
+    <>
+      <span className="sr-only">
+        {flow === "in" ? "Money in " : flow === "out" ? "Money out " : "Moved between your accounts "}
+      </span>
+      {flow === "in" ? "+" : flow === "out" ? "−" : <span aria-hidden>⇄ </span>}
+      {php(amount)}
+    </>
   );
 }
 
 function TransactionDetails({ tx }: { tx: Transaction }) {
   const { state } = useFinance();
   const meta = rowMeta(state, tx);
-  const inflow = isInflow(tx);
+  const flow = txFlow(tx);
   const items = [
     { label: "Date", value: tx.date },
     { label: "Type", value: kindLabel(tx.kind) },
@@ -348,12 +518,10 @@ function TransactionDetails({ tx }: { tx: Transaction }) {
   return (
     <div className="space-y-4">
       <p
-        className={`font-display text-3xl font-semibold tabular-nums ${inflow ? "text-ok" : "text-ink"}`}
+        className={`font-display text-3xl font-semibold tabular-nums ${flowColor(flow)}`}
         data-testid="log-panel-amount"
       >
-        {inflow ? "+" : "−"}
-        {php(tx.amount)}
-        <span className="sr-only">{inflow ? " money in" : " money out"}</span>
+        <SignedAmount flow={flow} amount={tx.amount} />
       </p>
       <DetailList items={items} />
       {tx.kind === "adjustment" ? (
@@ -389,18 +557,12 @@ function rowMeta(
     tx.particularId,
     tx.particular,
   );
-  const bits = [
-    tx.kind === "payment" && !tx.fromId
-      ? "from untracked source"
-      : tx.fromId
-        ? `from ${accountName(state, tx.fromId)}`
-        : "",
-    tx.toId ? `to ${accountName(state, tx.toId)}` : "",
-    tx.note,
-  ].filter(Boolean);
+  const account = accountFlowLabel(tx, (id) => accountName(state, id));
+  const bits = [account, tx.note].filter(Boolean);
   return {
     particular: particular || (walletTransfer ? "Transfer" : ""),
     categoryName,
+    account,
     subtitle: bits.join(" · "),
   };
 }
